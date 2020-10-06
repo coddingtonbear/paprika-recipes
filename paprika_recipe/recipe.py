@@ -43,6 +43,10 @@ class Recipe:
     def from_dict(cls, data: Dict[str, Any]) -> Recipe:
         return cls(**data)
 
+    def as_paprikarecipe(self, outf: IO[bytes]):
+        with gzip.open(outf, mode="wb") as recipe_file_gz:
+            recipe_file_gz.write(json.dumps(self.as_dict()).encode("utf-8"))
+
     def as_dict(self):
         return asdict(self)
 
