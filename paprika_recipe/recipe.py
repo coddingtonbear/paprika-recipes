@@ -1,39 +1,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
+import datetime
 import gzip
+import hashlib
 import json
 from typing import Any, Dict, IO, List, Optional
+import uuid
 
 from .types import UNKNOWN
 
 
 @dataclass
 class Recipe:
-    uid: str
-    created: str
-    hash: str
-    name: str
-    description: str
-    ingredients: str
-    directions: str
-    notes: str
-    nutritional_info: str
-    prep_time: str
-    cook_time: str
-    total_time: str
-    difficulty: str
-    servings: str
-    rating: int
-    source: str
-    source_url: str
-    photo: str
-    photo_large: UNKNOWN
-    photo_hash: str
-    image_url: str
+    name: str = ""
+    description: str = ""
+    ingredients: str = ""
+    directions: str = ""
+    notes: str = ""
+    nutritional_info: str = ""
+    prep_time: str = ""
+    cook_time: str = ""
+    total_time: str = ""
+    difficulty: str = ""
+    servings: str = ""
+    rating: int = 0
+    source: str = ""
+    source_url: str = ""
+    photo: str = ""
+    photo_large: UNKNOWN = None
+    photo_hash: str = ""
+    image_url: str = ""
+    uid: str = str(uuid.uuid4()).upper()
+    created: str = str(datetime.datetime.utcnow())[0:19]
     categories: List[UNKNOWN] = field(default_factory=list)
     photo_data: Optional[str] = None
     photos: List[UNKNOWN] = field(default_factory=list)
+    hash: str = hashlib.sha256(str(uuid.uuid4()).encode("utf-8")).hexdigest()
 
     @classmethod
     def from_file(cls, data: IO[bytes]) -> Recipe:
