@@ -1,0 +1,13 @@
+env/
+.vscode/
+.mypy_cache/
+*.pyc
+*.egg-info
+.eggs
+build/
+dist/
+docs/_build/
+docs/_static/
+docs/_templates/
+ChangeLog
+AUTHORS
