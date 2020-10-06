@@ -36,7 +36,7 @@ class Recipe:
     photos: List[UNKNOWN] = field(default_factory=list)
 
     @classmethod
-    def from_file(cls, data: IO) -> Recipe:
+    def from_file(cls, data: IO[bytes]) -> Recipe:
         return cls.from_dict(json.loads(gzip.open(data).read()))
 
     @classmethod

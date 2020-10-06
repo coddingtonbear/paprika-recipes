@@ -1,5 +1,4 @@
 import argparse
-from dataclasses import asdict
 from pathlib import Path
 
 from yaml import dump
