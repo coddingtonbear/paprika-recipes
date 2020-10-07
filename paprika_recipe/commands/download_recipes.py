@@ -1,5 +1,4 @@
 import argparse
-from paprika_recipe.exceptions import AuthenticationError
 from pathlib import Path
 
 import keyring
@@ -7,6 +6,7 @@ from yaml import dump
 
 from ..command import BaseCommand
 from ..constants import APP_NAME
+from ..exceptions import AuthenticationError
 from ..remote import Remote
 
 

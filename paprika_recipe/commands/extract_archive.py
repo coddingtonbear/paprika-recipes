@@ -1,10 +1,9 @@
 import argparse
 from pathlib import Path
 
-from yaml import dump
-
 from ..archive import Archive
 from ..command import BaseCommand
+from ..utils import dump_yaml
 
 
 class Command(BaseCommand):
@@ -25,4 +24,4 @@ class Command(BaseCommand):
                     / Path(f"{recipe.name}.paprikarecipe.yaml"),
                     "w",
                 ) as outf:
-                    dump(recipe.as_dict(), outf)
+                    dump_yaml(recipe.as_dict(), outf)
