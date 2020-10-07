@@ -1,54 +1,65 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 import datetime
 import gzip
 import hashlib
 import json
-from typing import Any, Dict, IO, List, Optional
+from typing import Any, Dict, IO, List, Optional, Type, TypeVar
 import uuid
 
 from .types import UNKNOWN
 
 
+T = TypeVar("T", bound="BaseRecipe")
+
+
 @dataclass
-class Recipe:
-    name: str = ""
+class BaseRecipe:
+    categories: List[str] = field(default_factory=list)
+    cook_time: str = ""
+    created: str = field(default_factory=lambda: str(datetime.datetime.utcnow())[0:19])
     description: str = ""
-    ingredients: str = ""
+    difficulty: str = ""
     directions: str = ""
+    hash: str = field(
+        default_factory=lambda: hashlib.sha256(
+            str(uuid.uuid4()).encode("utf-8")
+        ).hexdigest()
+    )
+    image_url: str = ""
+    ingredients: str = ""
+    name: str = ""
     notes: str = ""
     nutritional_info: str = ""
+    photo: str = ""
+    photo_hash: str = ""
+    photo_large: UNKNOWN = None
     prep_time: str = ""
-    cook_time: str = ""
-    total_time: str = ""
-    difficulty: str = ""
-    servings: str = ""
     rating: int = 0
+    servings: str = ""
     source: str = ""
     source_url: str = ""
-    photo: str = ""
-    photo_large: UNKNOWN = None
-    photo_hash: str = ""
-    image_url: str = ""
-    uid: str = str(uuid.uuid4()).upper()
-    created: str = str(datetime.datetime.utcnow())[0:19]
-    categories: List[UNKNOWN] = field(default_factory=list)
-    photo_data: Optional[str] = None
-    photos: List[UNKNOWN] = field(default_factory=list)
-    hash: str = hashlib.sha256(str(uuid.uuid4()).encode("utf-8")).hexdigest()
+    total_time: str = ""
+    uid: str = field(default_factory=lambda: str(uuid.uuid4()).upper())
 
     @classmethod
-    def from_file(cls, data: IO[bytes]) -> Recipe:
+    def get_all_fields(cls):
+        return fields(cls)
+
+    @classmethod
+    def from_file(cls: Type[T], data: IO[bytes]) -> T:
         return cls.from_dict(json.loads(gzip.open(data).read()))
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> Recipe:
+    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
         return cls(**data)
 
-    def as_paprikarecipe(self, outf: IO[bytes]):
-        with gzip.open(outf, mode="wb") as recipe_file_gz:
-            recipe_file_gz.write(json.dumps(self.as_dict()).encode("utf-8"))
+    def as_paprikarecipe(self) -> bytes:
+        return gzip.compress(self.as_json().encode("utf-8"))
+
+    def as_json(self):
+        return json.dumps(self.as_dict())
 
     def as_dict(self):
         return asdict(self)

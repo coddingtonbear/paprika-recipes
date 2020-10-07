@@ -19,7 +19,7 @@ class Command(BaseCommand):
 
             self.options.export_path.mkdir(parents=True, exist_ok=True)
 
-            for recipe in archive.recipes:
+            for recipe in archive:
                 with open(
                     self.options.export_path
                     / Path(f"{recipe.name}.paprikarecipe.yaml"),

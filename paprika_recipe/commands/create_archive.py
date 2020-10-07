@@ -3,8 +3,7 @@ from pathlib import Path
 
 from yaml import safe_load
 
-from ..archive import Archive
-from ..recipe import Recipe
+from ..archive import Archive, ArchiveRecipe
 from ..command import BaseCommand
 
 
@@ -19,7 +18,7 @@ class Command(BaseCommand):
 
         for recipe_file in self.options.export_path.iterdir():
             with open(recipe_file, "r") as inf:
-                archive.add_recipe(Recipe.from_dict(safe_load(inf)))
+                archive.add_recipe(ArchiveRecipe.from_dict(safe_load(inf)))
 
         with open(self.options.archive_path, "wb") as outf:
             archive.as_paprikarecipes(outf)
