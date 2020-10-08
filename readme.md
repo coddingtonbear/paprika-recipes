@@ -92,12 +92,10 @@ The expected workflow for changing your recipes is a three-step process:
 
 ```
 paprika-recipes extract-archive /path/to/your/export.paprikarecipes /path/to/extract/recipes/to/
-
 ```
 
 #### Compressing
 
 ```
 paprika-recipes create-archive /path/you/earlier/extracted/recipes/to/ /path/to/a/new/export.paprikarecipes
-
 ```
