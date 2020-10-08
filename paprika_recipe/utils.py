@@ -1,10 +1,15 @@
-from typing import Any
+import subprocess
+import tempfile
+from typing import Any, TypeVar, TYPE_CHECKING
 
 import keyring
 import yaml
 
 from .constants import APP_NAME
-from .exceptions import AuthenticationError
+from .exceptions import AuthenticationError, PaprikaUserError
+
+if TYPE_CHECKING:
+    from .recipe import BaseRecipe  # noqa
 
 
 def str_presenter(dumper, data):
@@ -30,3 +35,28 @@ def get_password_for_email(email: str) -> str:
         )
 
     return password
+
+
+T = TypeVar("T", bound="BaseRecipe")
+
+
+def edit_recipe_interactively(recipe: T, editor="vim") -> T:
+    with tempfile.NamedTemporaryFile(suffix=".paprikarecipe.yaml", mode="w+") as outf:
+
+        dump_yaml(recipe.as_dict(), outf)
+
+        outf.seek(0)
+
+        proc = subprocess.Popen([editor, outf.name])
+        proc.wait()
+
+        outf.seek(0)
+
+        contents = outf.read().strip()
+
+        if not contents:
+            raise PaprikaUserError("Empty recipe found; aborting")
+
+        outf.seek(0)
+
+        return recipe.__class__.from_dict(yaml.safe_load(outf))

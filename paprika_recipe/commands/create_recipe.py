@@ -1,14 +1,9 @@
 import argparse
 import os
-import subprocess
-import tempfile
-
-from yaml import safe_load
 
 from ..command import BaseCommand
-from ..exceptions import PaprikaUserError
 from ..remote import Remote, RemoteRecipe
-from ..utils import dump_yaml, get_password_for_email
+from ..utils import get_password_for_email, edit_recipe_interactively
 
 
 class Command(BaseCommand):
@@ -23,29 +18,9 @@ class Command(BaseCommand):
 
     def handle(self) -> None:
         password = get_password_for_email(self.options.email)
-        archive = Remote(self.options.email, password)
+        remote = Remote(self.options.email, password)
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".paprikarecipe.yaml", mode="w+"
-        ) as outf:
-            empty_recipe = RemoteRecipe()
+        created = edit_recipe_interactively(RemoteRecipe())
 
-            dump_yaml(empty_recipe.as_dict(), outf)
-
-            outf.seek(0)
-
-            proc = subprocess.Popen([self.options.editor, outf.name])
-            proc.wait()
-
-            outf.seek(0)
-
-            contents = outf.read().strip()
-
-            if not contents:
-                raise PaprikaUserError("Empty recipe found; aborting")
-
-            outf.seek(0)
-
-            recipe = RemoteRecipe.from_dict(safe_load(outf))
-            archive.upload_recipe(recipe)
-            archive.notify()
+        remote.upload_recipe(created)
+        remote.notify()
