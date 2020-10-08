@@ -2,12 +2,12 @@ import argparse
 from pathlib import Path
 
 import keyring
-from yaml import dump
 
 from ..command import BaseCommand
 from ..constants import APP_NAME
 from ..exceptions import AuthenticationError
 from ..remote import Remote
+from ..utils import dump_yaml
 
 
 class Command(BaseCommand):
@@ -34,4 +34,4 @@ class Command(BaseCommand):
                 self.options.export_path / Path(f"{recipe.name}.paprikarecipe.yaml"),
                 "w",
             ) as outf:
-                dump(recipe.as_dict(), outf)
+                dump_yaml(recipe.as_dict(), outf)
