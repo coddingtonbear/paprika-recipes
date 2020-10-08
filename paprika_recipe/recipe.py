@@ -5,7 +5,7 @@ import datetime
 import gzip
 import hashlib
 import json
-from typing import Any, Dict, IO, List, Optional, Type, TypeVar
+from typing import Any, Dict, IO, List, Type, TypeVar
 import uuid
 
 from .types import UNKNOWN
@@ -63,6 +63,17 @@ class BaseRecipe:
 
     def as_dict(self):
         return asdict(self)
+
+    def calculate_hash(self) -> str:
+        fields = self.as_dict()
+        fields.pop("hash", None)
+
+        return hashlib.sha256(
+            json.dumps(fields, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+    def update_hash(self):
+        self.hash = self.calculate_hash()
 
     def __str__(self):
         return self.name

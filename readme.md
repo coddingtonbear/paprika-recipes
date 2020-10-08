@@ -29,12 +29,14 @@ You'll be asked for your e-mail and password; after that point, this library wil
 #### Downloading
 
 ```
-paprika-recipe download-recipes your@email.address /path/to/export/your/recipes/to
+paprika-recipe download-recipes your@email.address /path/to/export/your/recipes
 ```
 
 #### Uploading
 
-**Not yet implemented**
+```
+paprika-recipe upload-recipes your@email.address /path/to/where/you/exported/your/recipes
+```
 
 ### Modifying via Exported Archives
 
@@ -47,7 +49,6 @@ The expected workflow for changing your recipes is a three-step process:
 #### Extracting
 
 ```
-
 paprika-recipe extract-archive /path/to/your/export.paprikarecipes /path/to/extract/recipes/to/
 
 ```
@@ -55,11 +56,6 @@ paprika-recipe extract-archive /path/to/your/export.paprikarecipes /path/to/extr
 #### Compressing
 
 ```
-
 paprika-recipe create-archive /path/you/earlier/extracted/recipes/to/ /path/to/a/new/export.paprikarecipes
-
-```
-
-```
 
 ```

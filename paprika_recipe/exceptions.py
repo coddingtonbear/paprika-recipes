@@ -4,3 +4,7 @@ class PaprikaError(Exception):
 
 class AuthenticationError(PaprikaError):
     pass
+
+
+class RequestError(PaprikaError):
+    pass

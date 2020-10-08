@@ -3,7 +3,7 @@ from typing import Iterable, List, Optional
 
 import requests
 
-from .exceptions import PaprikaError
+from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
 from .types import RemoteRecipeIdentifier, RecipeManager
 
@@ -40,7 +40,6 @@ class Remote(RecipeManager):
         all_fields = RemoteRecipe.get_all_fields()
 
         recipe_response = self._request("get", f"/api/v2/sync/recipe/{id}/")
-        recipe_response.raise_for_status()
 
         data = recipe_response.json().get("result", {})
 
@@ -56,20 +55,21 @@ class Remote(RecipeManager):
         return len(self._get_remote_recipe_identifiers())
 
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
-        result = self._request(
+        recipe.update_hash()
+
+        self._request(
             "post",
             f"/api/v2/sync/recipe/{recipe.uid}/",
             files={"data": recipe.as_paprikarecipe()},
         )
 
-        return result
+        return self.get_recipe_by_id(recipe.uid)
 
     def add_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         return self.upload_recipe(recipe)
 
     def _get_remote_recipe_identifiers(self) -> List[RemoteRecipeIdentifier]:
         recipes = self._request("get", "/api/v2/sync/recipes/")
-        recipes.raise_for_status()
 
         return [
             RemoteRecipeIdentifier(**recipe)
@@ -82,6 +82,10 @@ class Remote(RecipeManager):
                 "Authorization"
             ] = f"Bearer {self.bearer_token}"
         result = requests.request(method, f"https://{self._domain}{path}", **kwargs)
+        result.raise_for_status()
+
+        if "error" in result.json():
+            raise RequestError()
 
         return result
 
@@ -95,7 +99,6 @@ class Remote(RecipeManager):
                     data={"email": self._email, "password": self._password},
                     authenticated=False,
                 )
-                result.raise_for_status()
 
                 token = result.json().get("result", {}).get("token")
                 if not token:
@@ -110,6 +113,10 @@ class Remote(RecipeManager):
                 )
 
         return self._bearer_token
+
+    def notify(self):
+        """Asks the API to notify recipe apps that changes have occurred."""
+        self._request("post", "/api/v2/sync/notify/")
 
     def __str__(self):
         return f"Remote Paprika Recipes ({self.count()} recipes)"
