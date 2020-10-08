@@ -5,7 +5,7 @@
 ## Installation
 
 ```
-pip install paprika-recipe
+pip install paprika-recipes
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ pip install paprika-recipe
 You can modify a recipe on your Paprika account by running the following
 
 ```
-paprika-recipe edit-recipe your@email.address
+paprika-recipes edit-recipe your@email.address
 ```
 
 You'll be presented with a list of recipes on your account and after
@@ -38,7 +38,7 @@ match just one of your recipes, we'll open the editor straight away.
 You can create a new recipe on your Paprika account by running the following
 
 ```
-paprika-recipe create-recipe your@email.address
+paprika-recipes create-recipe your@email.address
 ```
 
 Your editor will be opened to a brand new empty recipe. Just write out
@@ -63,7 +63,7 @@ The expected workflow for changing your recipes when using this method is a thre
 Before beginning, though, you will need to store your paprika account information in your system keyring by running:
 
 ```
-paprika-recipe store-password
+paprika-recipes store-password
 ```
 
 You'll be asked for your e-mail and password; after that point, this library will fetch your password from your system keyring instead of prompting you for it.
@@ -71,13 +71,13 @@ You'll be asked for your e-mail and password; after that point, this library wil
 ##### Downloading
 
 ```
-paprika-recipe download-recipes your@email.address /path/to/export/your/recipes
+paprika-recipes download-recipes your@email.address /path/to/export/your/recipes
 ```
 
 ##### Uploading
 
 ```
-paprika-recipe upload-recipes your@email.address /path/to/where/you/exported/your/recipes
+paprika-recipes upload-recipes your@email.address /path/to/where/you/exported/your/recipes
 ```
 
 ### Modifying via Exported Archives
@@ -91,13 +91,13 @@ The expected workflow for changing your recipes is a three-step process:
 #### Extracting
 
 ```
-paprika-recipe extract-archive /path/to/your/export.paprikarecipes /path/to/extract/recipes/to/
+paprika-recipes extract-archive /path/to/your/export.paprikarecipes /path/to/extract/recipes/to/
 
 ```
 
 #### Compressing
 
 ```
-paprika-recipe create-archive /path/you/earlier/extracted/recipes/to/ /path/to/a/new/export.paprikarecipes
+paprika-recipes create-archive /path/you/earlier/extracted/recipes/to/ /path/to/a/new/export.paprikarecipes
 
 ```

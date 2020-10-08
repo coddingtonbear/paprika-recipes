@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 def get_installed_commands() -> Dict[str, Type[BaseCommand]]:
     possible_commands: Dict[str, Type[BaseCommand]] = {}
-    for entry_point in pkg_resources.iter_entry_points(group="paprika_recipe.commands"):
+    for entry_point in pkg_resources.iter_entry_points(
+        group="paprika_recipes.commands"
+    ):
         try:
             loaded_class = entry_point.load()
         except ImportError:
@@ -24,7 +26,7 @@ def get_installed_commands() -> Dict[str, Type[BaseCommand]]:
         if not issubclass(loaded_class, BaseCommand):
             logger.warning(
                 "Loaded entrypoint %s, but loaded class is "
-                "not a subclass of `paprika_recipe.command.BaseCommand`.",
+                "not a subclass of `paprika_recipes.command.BaseCommand`.",
                 entry_point,
             )
             continue
