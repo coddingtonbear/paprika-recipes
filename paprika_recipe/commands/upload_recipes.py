@@ -1,13 +1,11 @@
 import argparse
 from pathlib import Path
 
-import keyring
 from yaml import safe_load
 
-from ..constants import APP_NAME
 from ..remote import Remote, RemoteRecipe
 from ..command import BaseCommand
-from ..utils import dump_yaml
+from ..utils import dump_yaml, get_password_for_email
 
 
 class Command(BaseCommand):
@@ -21,7 +19,7 @@ class Command(BaseCommand):
         parser.add_argument("import_path", type=Path)
 
     def handle(self) -> None:
-        password = keyring.get_password(APP_NAME, self.options.email)
+        password = get_password_for_email(self.options.email)
         archive = Remote(self.options.email, password)
 
         for recipe_file in self.options.import_path.iterdir():

@@ -1,13 +1,9 @@
 import argparse
 from pathlib import Path
 
-import keyring
-
 from ..command import BaseCommand
-from ..constants import APP_NAME
-from ..exceptions import AuthenticationError
 from ..remote import Remote
-from ..utils import dump_yaml
+from ..utils import dump_yaml, get_password_for_email
 
 
 class Command(BaseCommand):
@@ -21,13 +17,7 @@ class Command(BaseCommand):
         parser.add_argument("export_path", type=Path)
 
     def handle(self) -> None:
-        password = keyring.get_password(APP_NAME, self.options.email)
-
-        if not password:
-            raise AuthenticationError(
-                f"No password stored for {self.options.email}; "
-                "store a password for this user using store-password first."
-            )
+        password = get_password_for_email(self.options.email)
 
         self.options.export_path.mkdir(parents=True, exist_ok=True)
 
