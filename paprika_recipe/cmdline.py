@@ -1,9 +1,14 @@
 from argparse import ArgumentParser
 
+from rich.console import Console
+from rich.traceback import install as enable_rich_traceback
+
 from .command import get_installed_commands
+from .exceptions import PaprikaError, PaprikaUserError
 
 
 def main():
+    enable_rich_traceback()
     commands = get_installed_commands()
 
     parser = ArgumentParser()
@@ -29,4 +34,13 @@ def main():
         debugpy.listen(("0.0.0.0", 5678))
         debugpy.wait_for_client()
 
-    commands[args.command](args).handle()
+    console = Console()
+
+    try:
+        commands[args.command](args).handle()
+    except PaprikaError as e:
+        console.print(f"[red]{e}[/red]")
+    except PaprikaUserError as e:
+        console.print(f"[yellow]{e}[/yellow]")
+    except Exception:
+        console.print_exception()

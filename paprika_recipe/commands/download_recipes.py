@@ -1,6 +1,8 @@
 import argparse
 from pathlib import Path
 
+from rich.progress import track
+
 from ..command import BaseCommand
 from ..remote import Remote
 from ..utils import dump_yaml, get_password_for_email
@@ -23,7 +25,9 @@ class Command(BaseCommand):
 
         remote = Remote(self.options.email, password)
 
-        for recipe in remote:
+        for recipe in track(
+            remote, total=remote.count(), description="Downloading Recipes"
+        ):
             with open(
                 self.options.export_path / Path(f"{recipe.name}.paprikarecipe.yaml"),
                 "w",

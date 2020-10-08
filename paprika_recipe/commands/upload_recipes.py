@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+from rich.progress import track
 from yaml import safe_load
 
 from ..remote import Remote, RemoteRecipe
@@ -22,7 +23,9 @@ class Command(BaseCommand):
         password = get_password_for_email(self.options.email)
         archive = Remote(self.options.email, password)
 
-        for recipe_file in self.options.import_path.iterdir():
+        files = list(self.options.import_path.iterdir())
+
+        for recipe_file in track(files, description="Uploading Recipes"):
             with open(recipe_file, "r") as inf:
                 uploaded = archive.upload_recipe(RemoteRecipe.from_dict(safe_load(inf)))
 
