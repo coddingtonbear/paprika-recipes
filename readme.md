@@ -12,6 +12,14 @@ pip install paprika-recipes
 
 ### Modifying via Paprika's API
 
+This app can interact directly with Paprika's API using the commands documented here, but before beginning, you will need to store your paprika account information in your system keyring by running:
+
+```
+paprika-recipes store-password
+```
+
+You'll be asked for your e-mail and password; after that point, the console app will fetch your password from your system keyring instead of prompting you for it.
+
 #### Modifying one of your existing recipes
 
 You can modify a recipe on your Paprika account by running the following
@@ -59,14 +67,6 @@ The expected workflow for changing your recipes when using this method is a thre
 1. Downloading your paprika recipes from your account.
 2. Modifying the extracted yaml recipe files or creating new ones.
 3. Uploading your changed or new recipes back to your account.
-
-Before beginning, though, you will need to store your paprika account information in your system keyring by running:
-
-```
-paprika-recipes store-password
-```
-
-You'll be asked for your e-mail and password; after that point, this library will fetch your password from your system keyring instead of prompting you for it.
 
 ##### Downloading
 
