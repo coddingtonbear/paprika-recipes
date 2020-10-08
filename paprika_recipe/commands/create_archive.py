@@ -9,6 +9,11 @@ from ..command import BaseCommand
 
 class Command(BaseCommand):
     @classmethod
+    def get_help(cls) -> str:
+        return """Creates a new .paprikarecipes file from a directory
+        of recipes."""
+
+    @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("export_path", type=Path)
         parser.add_argument("archive_path", type=Path)

@@ -8,6 +8,10 @@ from ..utils import dump_yaml
 
 class Command(BaseCommand):
     @classmethod
+    def get_help(cls) -> str:
+        return """Extracts a .paprikarecipes archive to a directory."""
+
+    @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("archive_path", type=Path)
         parser.add_argument("export_path", type=Path)

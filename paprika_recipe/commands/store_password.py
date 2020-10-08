@@ -8,6 +8,10 @@ from ..remote import Remote
 
 
 class Command(BaseCommand):
+    @classmethod
+    def get_help(cls) -> str:
+        return """Stores a paprika account password in your system keyring."""
+
     def handle(self) -> None:
         email = ""
         password = ""

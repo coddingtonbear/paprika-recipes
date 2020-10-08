@@ -12,6 +12,10 @@ from ..utils import dump_yaml
 
 class Command(BaseCommand):
     @classmethod
+    def get_help(cls) -> str:
+        return """Uploads a directory of recipes to a paprika account."""
+
+    @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("email", type=str)
         parser.add_argument("import_path", type=Path)
