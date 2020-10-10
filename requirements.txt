@@ -3,3 +3,4 @@ requests>=2.0,<3.0
 keyring>=21.0,<22.0
 rich>=8.0,<9.0
 enquiries>=0.1.0,<1.0
+appdirs>=1.4,<2.0

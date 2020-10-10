@@ -6,6 +6,10 @@ import logging
 import pkg_resources
 from typing import Dict, Type
 
+from .remote import Remote
+from .utils import get_password_for_email
+from .types import ConfigDict
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +40,9 @@ def get_installed_commands() -> Dict[str, Type[BaseCommand]]:
 
 
 class BaseCommand(metaclass=ABCMeta):
-    def __init__(self, options: argparse.Namespace):
+    def __init__(self, config: ConfigDict, options: argparse.Namespace):
         self._options: argparse.Namespace = options
+        self._config: ConfigDict = config
         super().__init__()
 
     @property
@@ -45,17 +50,45 @@ class BaseCommand(metaclass=ABCMeta):
         """ Provides options provided at the command-line."""
         return self._options
 
+    @property
+    def config(self) -> ConfigDict:
+        """ Returns saved configuration as a dictionary."""
+        return self._config
+
     @classmethod
     def get_help(cls) -> str:
         """ Retuurns help text for this function."""
         return ""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
         """ Allows adding additional command-line arguments. """
         pass
+
+    @classmethod
+    def _add_arguments(
+        cls, parser: argparse.ArgumentParser, config: ConfigDict
+    ) -> None:
+        cls.add_arguments(parser, config)
 
     @abstractmethod
     def handle(self) -> None:
         """ This is where the work of your function starts. """
         ...
+
+
+class RemoteCommand(BaseCommand):
+    @classmethod
+    def _add_arguments(
+        cls, parser: argparse.ArgumentParser, config: ConfigDict
+    ) -> None:
+        """ Allows adding additional command-line arguments. """
+        parser.add_argument(
+            "--account", type=str, default=config.get("default_account", "")
+        )
+        super()._add_arguments(parser, config)
+
+    def get_remote(self) -> Remote:
+        return Remote(
+            self.options.account, get_password_for_email(self.options.account)
+        )

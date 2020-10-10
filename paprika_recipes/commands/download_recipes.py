@@ -3,27 +3,24 @@ from pathlib import Path
 
 from rich.progress import track
 
-from ..command import BaseCommand
-from ..remote import Remote
-from ..utils import dump_yaml, get_password_for_email
+from ..command import RemoteCommand
+from ..types import ConfigDict
+from ..utils import dump_yaml
 
 
-class Command(BaseCommand):
+class Command(RemoteCommand):
     @classmethod
     def get_help(cls) -> str:
         return """Downloads all recipes from a paprika account to a directory."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("email", type=str)
+    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
         parser.add_argument("export_path", type=Path)
 
     def handle(self) -> None:
-        password = get_password_for_email(self.options.email)
+        remote = self.get_remote()
 
         self.options.export_path.mkdir(parents=True, exist_ok=True)
-
-        remote = Remote(self.options.email, password)
 
         for recipe in track(
             remote, total=remote.count(), description="Downloading Recipes"

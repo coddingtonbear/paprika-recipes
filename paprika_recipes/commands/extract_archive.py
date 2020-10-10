@@ -3,6 +3,7 @@ from pathlib import Path
 
 from ..archive import Archive
 from ..command import BaseCommand
+from ..types import ConfigDict
 from ..utils import dump_yaml
 
 
@@ -12,7 +13,7 @@ class Command(BaseCommand):
         return """Extracts a .paprikarecipes archive to a directory."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
         parser.add_argument("archive_path", type=Path)
         parser.add_argument("export_path", type=Path)
 

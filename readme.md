@@ -20,12 +20,14 @@ paprika-recipes store-password
 
 You'll be asked for your e-mail and password; after that point, the console app will fetch your password from your system keyring instead of prompting you for it.
 
+The instructions below assume that you've answered "yes" when asked whether you'd like to use this account by default, but if you didn't -- see `--help` for instructions.
+
 #### Modifying one of your existing recipes
 
 You can modify a recipe on your Paprika account by running the following
 
 ```
-paprika-recipes edit-recipe your@email.address
+paprika-recipes edit-recipe
 ```
 
 You'll be presented with a list of recipes on your account and after
@@ -46,7 +48,7 @@ match just one of your recipes, we'll open the editor straight away.
 You can create a new recipe on your Paprika account by running the following
 
 ```
-paprika-recipes create-recipe your@email.address
+paprika-recipes create-recipe
 ```
 
 Your editor will be opened to a brand new empty recipe. Just write out
@@ -71,13 +73,13 @@ The expected workflow for changing your recipes when using this method is a thre
 ##### Downloading
 
 ```
-paprika-recipes download-recipes your@email.address /path/to/export/your/recipes
+paprika-recipes download-recipes /path/to/export/your/recipes
 ```
 
 ##### Uploading
 
 ```
-paprika-recipes upload-recipes your@email.address /path/to/where/you/exported/your/recipes
+paprika-recipes upload-recipes /path/to/where/you/exported/your/recipes
 ```
 
 ### Modifying via Exported Archives

@@ -5,11 +5,13 @@ from rich.traceback import install as enable_rich_traceback
 
 from .command import get_installed_commands
 from .exceptions import PaprikaError, PaprikaUserError
+from .utils import get_config
 
 
 def main():
     enable_rich_traceback()
     commands = get_installed_commands()
+    config = get_config()
 
     parser = ArgumentParser()
     parser.add_argument("--debugger", action="store_true")
@@ -24,7 +26,7 @@ def main():
             parser_kwargs["help"] = cmd_help
 
         subparser = subparsers.add_parser(cmd_name, **parser_kwargs)
-        cmd_class.add_arguments(subparser)
+        cmd_class._add_arguments(subparser, config)
 
     args = parser.parse_args()
 
@@ -37,7 +39,7 @@ def main():
     console = Console()
 
     try:
-        commands[args.command](args).handle()
+        commands[args.command](config, args).handle()
     except PaprikaError as e:
         console.print(f"[red]{e}[/red]")
     except PaprikaUserError as e:

@@ -5,6 +5,7 @@ from yaml import safe_load
 
 from ..archive import Archive, ArchiveRecipe
 from ..command import BaseCommand
+from ..types import ConfigDict
 
 
 class Command(BaseCommand):
@@ -14,7 +15,7 @@ class Command(BaseCommand):
         of recipes."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
         parser.add_argument("export_path", type=Path)
         parser.add_argument("archive_path", type=Path)
 

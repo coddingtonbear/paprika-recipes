@@ -5,26 +5,25 @@ from typing import List
 import enquiries
 from rich.progress import track
 
-from ..command import BaseCommand
+from ..command import RemoteCommand
 from ..exceptions import PaprikaUserError
-from ..remote import Remote, RemoteRecipe
-from ..utils import get_password_for_email, edit_recipe_interactively
+from ..remote import RemoteRecipe
+from ..types import ConfigDict
+from ..utils import edit_recipe_interactively
 
 
-class Command(BaseCommand):
+class Command(RemoteCommand):
     @classmethod
     def get_help(cls) -> str:
         return """Opens an editor allowing you to edit an existing paprika recipe."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
         parser.add_argument("--editor", default=os.environ.get("EDITOR", "vim"))
-        parser.add_argument("email", type=str)
         parser.add_argument("search_terms", nargs="*", type=str)
 
     def handle(self) -> None:
-        password = get_password_for_email(self.options.email)
-        remote = Remote(self.options.email, password)
+        remote = self.get_remote()
 
         recipes: List[RemoteRecipe] = []
         for recipe in track(
