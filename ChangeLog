@@ -1,0 +1,37 @@
+CHANGES
+=======
+
+2.0.0
+-----
+
+* Default accounts: When using 'store-password' to store a password, you'll
+  be asked whether you'd like to use that account as your default account.
+  Commands no longer require that you specify which account to use, but
+  if you would like to specify a specific account, use the --account
+  command-line argument.
+
+1.2.0
+-----
+
+* I've decided this should've been pluralized this whole time
+* Adding 'edit-recipe' command and updating readme to be a little more descriptive
+* UI improvements; adding progressbars; improving error and traceback display
+* Adding command allowing you to interactively create a recipe
+* Adding help text for each of the subcommands
+* Adding new 'upload-recipes' function
+* Use the slightly better yaml dump function when downloading recipes
+* When dumping to yaml, use the much better multiline syntax
+* Adding support for downloading recipes from your paprika account
+
+1.1.0
+-----
+
+* Make the importer much more forgiving of missing information to make adding recipes to an archive easy
+
+1.0.0
+-----
+
+* Adding readme instructions; updating a couple command names
+* Slightly reallocating responsibilities between the archive and recipe classes
+* Adding import-from-directory functionality, too
+* Adding basic parser & export-to-directory functionality
