@@ -1,6 +1,11 @@
 CHANGES
 =======
 
+2.1.0
+-----
+
+* Print a message in the 'interactive' recipe editor indicating how you might cancel your modification
+
 2.0.0
 -----
 
