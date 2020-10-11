@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+from textwrap import dedent
 from typing import Any, cast, TypeVar, TYPE_CHECKING
 
 from appdirs import user_config_dir
@@ -52,6 +53,14 @@ T = TypeVar("T", bound="BaseRecipe")
 
 def edit_recipe_interactively(recipe: T, editor="vim") -> T:
     with tempfile.NamedTemporaryFile(suffix=".paprikarecipe.yaml", mode="w+") as outf:
+        outf.write(
+            dedent(
+                """\
+            # Please modify your recipe below, then save and exit.
+            # To cancel, delete all content from this file.
+        """
+            )
+        )
 
         dump_yaml(recipe.as_dict(), outf)
 

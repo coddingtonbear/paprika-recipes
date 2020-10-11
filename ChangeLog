@@ -4,11 +4,11 @@ CHANGES
 2.0.0
 -----
 
-* Default accounts: When using 'store-password' to store a password, you'll
-  be asked whether you'd like to use that account as your default account.
-  Commands no longer require that you specify which account to use, but
-  if you would like to specify a specific account, use the --account
-  command-line argument.
+* Adding changelog (was accidentally ignored)
+* Adds notion of 'default account'; refactors save-password to set it, and commands to use it
+* Readme formatting fix
+* Re-organizing readme
+* Updating readme
 
 1.2.0
 -----
