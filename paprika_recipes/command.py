@@ -6,8 +6,9 @@ import logging
 import pkg_resources
 from typing import Dict, Type
 
+from .cache import Cache, DirectoryCache
 from .remote import Remote
-from .utils import get_password_for_email
+from .utils import get_password_for_email, get_cache_dir
 from .types import ConfigDict
 
 
@@ -78,6 +79,9 @@ class BaseCommand(metaclass=ABCMeta):
 
 
 class RemoteCommand(BaseCommand):
+    def get_cache(self) -> Cache:
+        return DirectoryCache(get_cache_dir())
+
     @classmethod
     def _add_arguments(
         cls, parser: argparse.ArgumentParser, config: ConfigDict
@@ -90,5 +94,7 @@ class RemoteCommand(BaseCommand):
 
     def get_remote(self) -> Remote:
         return Remote(
-            self.options.account, get_password_for_email(self.options.account)
+            self.options.account,
+            get_password_for_email(self.options.account),
+            cache=self.get_cache(),
         )

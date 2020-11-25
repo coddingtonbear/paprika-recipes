@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import subprocess
 import tempfile
 from textwrap import dedent
@@ -82,10 +83,17 @@ def edit_recipe_interactively(recipe: T, editor="vim") -> T:
 
 
 def get_config_dir() -> str:
-    root_path = user_config_dir(APP_NAME, "coddingtonbear")
+    root_path = Path(user_config_dir(APP_NAME, "coddingtonbear"))
     os.makedirs(root_path, exist_ok=True)
 
-    return root_path
+    return str(root_path)
+
+
+def get_cache_dir() -> str:
+    cache_path = Path(user_config_dir(APP_NAME, "coddingtonbear")) / "cache"
+    os.makedirs(cache_path, exist_ok=True)
+
+    return str(cache_path)
 
 
 def get_default_config_path() -> str:

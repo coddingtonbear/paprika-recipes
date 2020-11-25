@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import requests
 
 from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
+from .cache import Cache, NullCache
 from .types import RemoteRecipeIdentifier, RecipeManager
 
 
@@ -25,23 +26,39 @@ class Remote(RecipeManager):
     _email: str
     _password: str
 
-    def __init__(self, email: str, password: str, domain: str = "www.paprikaapp.com"):
+    def __init__(
+        self,
+        email: str,
+        password: str,
+        domain: str = "www.paprikaapp.com",
+        cache: Optional[Cache] = None,
+    ):
         super().__init__()
         self._email = email
         self._password = password
         self._domain = domain
+        self._cache = cache if cache else NullCache()
 
     @property
     def recipes(self) -> Iterable[RemoteRecipe]:
         for recipe in self._get_remote_recipe_identifiers():
-            yield self.get_recipe_by_id(recipe.uid)
+            yield self.get_recipe_by_id(recipe.uid, recipe.hash)
 
-    def get_recipe_by_id(self, id: str) -> RemoteRecipe:
+    def get_recipe_by_id(self, id: str, hash: str) -> RemoteRecipe:
         all_fields = RemoteRecipe.get_all_fields()
 
-        recipe_response = self._request("get", f"/api/v2/sync/recipe/{id}/")
+        data: Dict = {}
 
-        data = recipe_response.json().get("result", {})
+        if self._cache.is_cached(id, hash):
+            data = self._cache.read_from_cache(id, hash)
+
+        if not data:
+            recipe_response = self._request("get", f"/api/v2/sync/recipe/{id}/")
+
+            data = recipe_response.json().get("result", {})
+
+            self._cache.store_in_cache(id, hash, data)
+            self._cache.save()
 
         return RemoteRecipe(
             **{
@@ -63,7 +80,7 @@ class Remote(RecipeManager):
             files={"data": recipe.as_paprikarecipe()},
         )
 
-        return self.get_recipe_by_id(recipe.uid)
+        return self.get_recipe_by_id(recipe.uid, recipe.hash)
 
     def add_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         return self.upload_recipe(recipe)
