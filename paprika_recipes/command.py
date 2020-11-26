@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 from abc import ABCMeta, abstractmethod
+from enum import Enum
 import logging
+from pathlib import Path
 import pkg_resources
-from typing import Dict, Type
+from typing import Dict, Optional, Type
 
-from .cache import Cache, DirectoryCache
+from .cache import Cache, DirectoryCache, NullCache, WriteOnlyDirectoryCache
+from .exceptions import PaprikaProgrammingError
 from .remote import Remote
 from .utils import get_password_for_email, get_cache_dir
 from .types import ConfigDict
@@ -79,8 +82,30 @@ class BaseCommand(metaclass=ABCMeta):
 
 
 class RemoteCommand(BaseCommand):
+    _cache: Optional[Cache] = None
+
+    class CacheChoices(Enum):
+        none = "none"
+        ignore = "ignore"
+        enabled = "enabled"
+
+        def __str__(self):
+            return self.value
+
     def get_cache(self) -> Cache:
-        return DirectoryCache(get_cache_dir())
+        if not self._cache:
+            if self.options.cache_mode == self.CacheChoices.enabled:
+                self._cache = DirectoryCache(self.options.cache_path)
+            elif self.options.cache_mode == self.CacheChoices.ignore:
+                self._cache = WriteOnlyDirectoryCache(self.options.cache_path)
+            elif self.options.cache_mode == self.CacheChoices.none:
+                self._cache = NullCache()
+            else:
+                raise PaprikaProgrammingError(
+                    f"Unhandled cache choice: {self.options.cache_mode}"
+                )
+
+        return self._cache
 
     @classmethod
     def _add_arguments(
@@ -89,6 +114,23 @@ class RemoteCommand(BaseCommand):
         """ Allows adding additional command-line arguments. """
         parser.add_argument(
             "--account", type=str, default=config.get("default_account", "")
+        )
+        parser.add_argument(
+            "--cache-mode",
+            type=cls.CacheChoices,
+            choices=cls.CacheChoices,
+            default=cls.CacheChoices.enabled,
+            help=(
+                "enabled (default): read and write from the cache; "
+                "ignore: write to the cache, but do not read from it; "
+                "none: neither read nor write to the cache."
+            ),
+        )
+        parser.add_argument(
+            "--cache-path",
+            type=Path,
+            default=Path(get_cache_dir()),
+            help=f"directory to store cache files within; default: {get_cache_dir()}",
         )
         super()._add_arguments(parser, config)
 

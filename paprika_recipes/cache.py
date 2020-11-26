@@ -96,3 +96,11 @@ class DirectoryCache(Cache):
                 json.dump(self.index, outf)
         except Exception as e:
             logger.exception("Error encountered while saving cache: %s", e)
+
+
+class WriteOnlyDirectoryCache(DirectoryCache):
+    def is_cached(self, uid: str, hash: str) -> bool:
+        return False
+
+    def read_from_cache(self, uid: str, hash: str) -> Dict:
+        raise NotImplementedError()

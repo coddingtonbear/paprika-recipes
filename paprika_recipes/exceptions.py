@@ -2,6 +2,10 @@ class PaprikaException(Exception):
     pass
 
 
+class PaprikaProgrammingError(PaprikaException):
+    pass
+
+
 class PaprikaError(PaprikaException):
     pass
 
