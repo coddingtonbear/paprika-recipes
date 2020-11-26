@@ -1,6 +1,17 @@
 CHANGES
 =======
 
+2.2.0
+-----
+
+* Switching back to yaml.dump to fix string formatting
+* Show a progressbar when saving recipe during edit
+* Use pathlib.Path for paths
+* Fixing a minor typing problem
+* Adding command-line arguments allowing you to control how caching is used
+* Store a cached copy of remote recipes to improve remote performance
+* Updating changelog
+
 2.1.0
 -----
 
