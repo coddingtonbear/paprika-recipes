@@ -3,7 +3,8 @@ import os
 from typing import List
 
 import enquiries
-from rich.progress import track
+from rich.progress import track, Progress
+
 
 from ..command import RemoteCommand
 from ..exceptions import PaprikaUserError
@@ -52,5 +53,11 @@ class Command(RemoteCommand):
 
         created = edit_recipe_interactively(recipe)
 
-        remote.upload_recipe(created)
+        with Progress() as pb:
+            task_id = pb.add_task("Uploading Recipe", total=1)
+
+            remote.upload_recipe(created)
+
+            pb.update(task_id, completed=1)
+
         remote.notify()
