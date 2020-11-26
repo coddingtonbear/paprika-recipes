@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional
 
 import requests
 
@@ -38,6 +38,10 @@ class Remote(RecipeManager):
         self._password = password
         self._domain = domain
         self._cache = cache if cache else NullCache()
+
+    def __iter__(self) -> Iterator[RemoteRecipe]:
+        for recipe in self.recipes:
+            yield recipe
 
     @property
     def recipes(self) -> Iterable[RemoteRecipe]:
