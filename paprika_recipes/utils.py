@@ -82,26 +82,26 @@ def edit_recipe_interactively(recipe: T, editor="vim") -> T:
         return recipe.__class__.from_dict(yaml.safe_load(outf))
 
 
-def get_config_dir() -> str:
+def get_config_dir() -> Path:
     root_path = Path(user_config_dir(APP_NAME, "coddingtonbear"))
     os.makedirs(root_path, exist_ok=True)
 
-    return str(root_path)
+    return root_path
 
 
-def get_cache_dir() -> str:
+def get_cache_dir() -> Path:
     cache_path = Path(user_config_dir(APP_NAME, "coddingtonbear")) / "cache"
     os.makedirs(cache_path, exist_ok=True)
 
-    return str(cache_path)
+    return cache_path
 
 
-def get_default_config_path() -> str:
+def get_default_config_path() -> Path:
     root_path = get_config_dir()
-    return os.path.join(root_path, "config.yaml",)
+    return root_path / "config.yaml"
 
 
-def get_config(path: str = None) -> ConfigDict:
+def get_config(path: Path = None) -> ConfigDict:
     if path is None:
         path = get_default_config_path()
 
@@ -112,7 +112,7 @@ def get_config(path: str = None) -> ConfigDict:
         return cast(ConfigDict, load_yaml(inf))
 
 
-def save_config(data: ConfigDict, path: str = None) -> None:
+def save_config(data: ConfigDict, path: Path = None) -> None:
     if path is None:
         path = get_default_config_path()
 
