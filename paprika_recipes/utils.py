@@ -27,7 +27,10 @@ yaml.add_representer(str, str_presenter)
 
 
 def dump_yaml(*args: Any):
-    yaml.safe_dump(*args, allow_unicode=True)
+    # We're using a custom presenter, so we have to use `yaml.dump`
+    # instead of `yaml.safe_dump` -- that's OK, though -- we still use
+    # `safe_load`, which is where the actual risks are.
+    yaml.dump(*args, allow_unicode=True)
 
 
 def load_yaml(*args: Any) -> Any:
