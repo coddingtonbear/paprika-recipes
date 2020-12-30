@@ -16,6 +16,7 @@ class Command(RemoteCommand):
     @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
         parser.add_argument("export_path", type=Path)
+        parser.add_argument("--download_images", default=False, type=bool, help="Allows to download every image attached to the recipes")
 
     def handle(self) -> None:
         remote = self.get_remote()
@@ -25,6 +26,8 @@ class Command(RemoteCommand):
         for recipe in track(
             remote, total=remote.count(), description="Downloading Recipes"
         ):
+            if self.options.download_images:
+                remote.download_image(recipe)
             with open(
                 self.options.export_path / Path(f"{recipe.name}.paprikarecipe.yaml"),
                 "w",
