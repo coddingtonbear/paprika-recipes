@@ -16,7 +16,7 @@ T = TypeVar("T", bound="BaseRecipe")
 
 @dataclass
 class BaseRecipe:
-    categories: List[str] = field(default_factory=list)
+    categories: List[Category] = field(default_factory=list)
     cook_time: str = ""
     created: str = field(default_factory=lambda: str(datetime.datetime.utcnow())[0:19])
     description: str = ""
@@ -59,6 +59,8 @@ class BaseRecipe:
         return gzip.compress(self.as_json().encode("utf-8"))
 
     def as_json(self):
+        as_dict = self.as_dict()
+        as_dict['categories'] = [category.uid for category in as_dict['categories']]
         return json.dumps(self.as_dict())
 
     def as_dict(self):
