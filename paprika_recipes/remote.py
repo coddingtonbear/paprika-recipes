@@ -5,6 +5,7 @@ import requests
 
 from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
+from .category import Category
 from .cache import Cache, NullCache
 from .types import RemoteRecipeIdentifier, RecipeManager
 
@@ -38,6 +39,7 @@ class Remote(RecipeManager):
         self._password = password
         self._domain = domain
         self._cache = cache if cache else NullCache()
+        self._categories = None
 
     def __iter__(self) -> Iterator[RemoteRecipe]:
         for recipe in self.recipes:
@@ -47,6 +49,32 @@ class Remote(RecipeManager):
     def recipes(self) -> Iterable[RemoteRecipe]:
         for recipe in self._get_remote_recipe_identifiers():
             yield self.get_recipe_by_id(recipe.uid, recipe.hash)
+
+    @property
+    def categories(self) -> Dict[str, Category]:
+        if self._categories is None:
+            categories = self._get_categories()
+            self._categories = {}
+            for category in categories:
+                self._categories[category.uid] = category
+
+        return self._categories
+
+    def _get_categories(self):
+        data = self._request("get", f"/api/v2/sync/categories").json().get("result", {})
+
+        categories = []
+        for category in data:
+            category_fields = ["name", "uid", "parent_uid", "order_flag"]
+
+            categories.append(Category(
+                **{
+                    field: category[field]
+                    for field in category_fields
+                    if field in category
+                }
+            ))
+        return categories
 
     def get_recipe_by_id(self, id: str, hash: str) -> RemoteRecipe:
         all_fields = RemoteRecipe.get_all_fields()
@@ -63,6 +91,10 @@ class Remote(RecipeManager):
 
             self._cache.store_in_cache(id, hash, data)
             self._cache.save()
+
+        # Fill out the categories from the categories endpoint
+        if data["categories"] is not None:
+            data["categories"] = [self.categories[name] for name in data["categories"] if self.categories[name] is not None]
 
         return RemoteRecipe(
             **{
