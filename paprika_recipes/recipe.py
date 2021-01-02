@@ -8,6 +8,7 @@ import json
 from typing import Any, Dict, IO, List, Type, TypeVar
 import uuid
 
+from .category import Category
 from .types import UNKNOWN
 
 
