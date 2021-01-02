@@ -26,6 +26,7 @@ class Remote(RecipeManager):
     _domain: str
     _email: str
     _password: str
+    _categories: Optional[Dict[str, Category]]
 
     def __init__(
         self,
@@ -61,7 +62,7 @@ class Remote(RecipeManager):
         return self._categories
 
     def _get_categories(self):
-        data = self._request("get", f"/api/v2/sync/categories").json().get("result", {})
+        data = self._request("get", "/api/v2/sync/categories").json().get("result", {})
 
         categories = []
         for category in data:
