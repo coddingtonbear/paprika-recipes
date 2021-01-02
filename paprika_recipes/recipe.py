@@ -61,7 +61,7 @@ class BaseRecipe:
 
     def as_json(self):
         as_dict = self.as_dict()
-        as_dict['categories'] = [category.uid for category in as_dict['categories']]
+        as_dict["categories"] = [category.uid for category in as_dict["categories"]]
         return json.dumps(self.as_dict())
 
     def as_dict(self):
