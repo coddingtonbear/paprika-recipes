@@ -67,13 +67,15 @@ class Remote(RecipeManager):
         for category in data:
             category_fields = ["name", "uid", "parent_uid", "order_flag"]
 
-            categories.append(Category(
-                **{
-                    field: category[field]
-                    for field in category_fields
-                    if field in category
-                }
-            ))
+            categories.append(
+                Category(
+                    **{
+                        field: category[field]
+                        for field in category_fields
+                        if field in category
+                    }
+                )
+            )
         return categories
 
     def get_recipe_by_id(self, id: str, hash: str) -> RemoteRecipe:
@@ -94,7 +96,11 @@ class Remote(RecipeManager):
 
         # Fill out the categories from the categories endpoint
         if data["categories"] is not None:
-            data["categories"] = [self.categories[name] for name in data["categories"] if self.categories[name] is not None]
+            data["categories"] = [
+                self.categories[name]
+                for name in data["categories"]
+                if self.categories[name] is not None
+            ]
 
         return RemoteRecipe(
             **{
