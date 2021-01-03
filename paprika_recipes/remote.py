@@ -79,17 +79,17 @@ class Remote(RecipeManager):
     def download_image(self, recipe: RemoteRecipe):
 
         if recipe.image_url:
-            result = requests.request('GET', recipe.image_url)
+            result = requests.request("GET", recipe.image_url)
             result.raise_for_status()
 
-            if not os.path.exists('images'):
-                os.mkdir('images')
+            if not os.path.exists("images"):
+                os.mkdir("images")
 
             url = recipe.image_url
 
             # Remove query parameters from the URL.
-            if url.find('?') != -1:
-                url = url[:url.find('?')]
+            if url.find("?") != -1:
+                url = url[: url.find("?")]
 
             filename, file_extension = os.path.splitext(url)
             destination_filename = f"images/{recipe.uid}{file_extension}"
