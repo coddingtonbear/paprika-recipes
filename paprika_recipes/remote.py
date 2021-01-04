@@ -3,6 +3,7 @@ from typing import Dict, Iterable, Iterator, List, Optional
 
 import requests
 import os
+import urllib
 
 from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
@@ -76,29 +77,12 @@ class Remote(RecipeManager):
     def count(self) -> int:
         return len(self._get_remote_recipe_identifiers())
 
-    def download_image(self, recipe: RemoteRecipe):
-
+    def fetch_recipe_image(self, recipe: RemoteRecipe):
         if recipe.image_url:
             result = requests.request("GET", recipe.image_url)
             result.raise_for_status()
 
-            if not os.path.exists("images"):
-                os.mkdir("images")
-
-            url = recipe.image_url
-
-            # Remove query parameters from the URL.
-            if url.find("?") != -1:
-                url = url[: url.find("?")]
-
-            filename, file_extension = os.path.splitext(url)
-            destination_filename = f"images/{recipe.uid}{file_extension}"
-
-            file = open(destination_filename, "wb")
-            file.write(result.content)
-            file.close()
-
-            recipe.image_url = destination_filename
+            return result.content
 
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         recipe.update_hash()
