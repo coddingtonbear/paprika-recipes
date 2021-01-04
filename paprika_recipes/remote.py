@@ -97,7 +97,7 @@ class Remote(RecipeManager):
 
         # Fill out the categories from the categories endpoint
         if data["categories"] is not None:
-            data["category_objects"] = [
+            data["categories"] = [
                 self.categories[name]
                 for name in data["categories"]
                 if self.categories[name] is not None

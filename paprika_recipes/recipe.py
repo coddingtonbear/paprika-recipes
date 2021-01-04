@@ -17,9 +17,7 @@ T = TypeVar("T", bound="BaseRecipe")
 
 @dataclass
 class BaseRecipe:
-    categories: List[str] = field(default_factory=list)
-    category_objects: List[Category] = field(default_factory=list)
-
+    categories: List[Category] = field(default_factory=list)
     cook_time: str = ""
     created: str = field(default_factory=lambda: str(datetime.datetime.utcnow())[0:19])
     description: str = ""
@@ -56,8 +54,6 @@ class BaseRecipe:
 
     @classmethod
     def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
-        # Remove information, which is not available on the paprika server.
-        del data["category_objects"]
         return cls(**data)
 
     def as_paprikarecipe(self) -> bytes:
