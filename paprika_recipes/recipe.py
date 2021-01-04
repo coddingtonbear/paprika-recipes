@@ -28,6 +28,7 @@ class BaseRecipe:
         ).hexdigest()
     )
     image_url: str = ""
+    local_image_url: str = ""
     ingredients: str = ""
     name: str = ""
     notes: str = ""
@@ -59,7 +60,9 @@ class BaseRecipe:
         return gzip.compress(self.as_json().encode("utf-8"))
 
     def as_json(self):
-        return json.dumps(self.as_dict())
+        as_dict = self.as_dict()
+        del as_dict["local_image_url"]
+        return json.dumps(as_dict)
 
     def as_dict(self):
         return asdict(self)
