@@ -8,6 +8,7 @@ import json
 from typing import Any, Dict, IO, List, Type, TypeVar
 import uuid
 
+from .category import Category
 from .types import UNKNOWN
 
 
@@ -16,7 +17,7 @@ T = TypeVar("T", bound="BaseRecipe")
 
 @dataclass
 class BaseRecipe:
-    categories: List[str] = field(default_factory=list)
+    categories: List[Category] = field(default_factory=list)
     cook_time: str = ""
     created: str = field(default_factory=lambda: str(datetime.datetime.utcnow())[0:19])
     description: str = ""
@@ -59,7 +60,14 @@ class BaseRecipe:
         return gzip.compress(self.as_json().encode("utf-8"))
 
     def as_json(self):
-        return json.dumps(self.as_dict())
+        as_dict = self.as_dict()
+
+        # Support categories to be both strings and dicts.
+        as_dict["categories"] = [
+            category if isinstance(category, str) else category["uid"]
+            for category in as_dict["categories"]
+        ]
+        return json.dumps(as_dict)
 
     def as_dict(self):
         return asdict(self)
