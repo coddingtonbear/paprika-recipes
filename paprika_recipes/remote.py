@@ -98,9 +98,9 @@ class Remote(RecipeManager):
         # Fill out the categories from the categories endpoint
         if data["categories"] is not None:
             data["categories"] = [
-                self.categories[name]
+                # The cache might have either the raw category UID or the category object
+                self.categories[name] if isinstance(name, str) and self.categories[name] is not None else name
                 for name in data["categories"]
-                if self.categories[name] is not None
             ]
 
         return RemoteRecipe(

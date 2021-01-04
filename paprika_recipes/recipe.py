@@ -61,8 +61,10 @@ class BaseRecipe:
 
     def as_json(self):
         as_dict = self.as_dict()
-        as_dict["categories"] = [category.uid for category in as_dict["categories"]]
-        return json.dumps(self.as_dict())
+
+        # Support categories to be both strings and dicts.
+        as_dict["categories"] = [category if isinstance(category, str) else category["uid"] for category in as_dict["categories"]]
+        return json.dumps(as_dict)
 
     def as_dict(self):
         return asdict(self)
