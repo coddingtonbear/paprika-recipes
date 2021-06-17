@@ -4,7 +4,7 @@ from pathlib import Path
 from ..archive import Archive
 from ..command import BaseCommand
 from ..types import ConfigDict
-from ..utils import dump_yaml
+from ..utils import dump_recipe_yaml
 
 
 class Command(BaseCommand):
@@ -29,4 +29,4 @@ class Command(BaseCommand):
                     / Path(f"{recipe.name}.paprikarecipe.yaml"),
                     "w",
                 ) as outf:
-                    dump_yaml(recipe.as_dict(), outf)
+                    dump_recipe_yaml(recipe, outf)

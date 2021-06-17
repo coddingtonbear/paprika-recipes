@@ -1,9 +1,10 @@
+from collections import OrderedDict
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 from textwrap import dedent
-from typing import Any, cast, TypeVar, TYPE_CHECKING
+from typing import Any, cast, List, TypeVar, TYPE_CHECKING
 
 from appdirs import user_config_dir
 import keyring
@@ -17,13 +18,51 @@ if TYPE_CHECKING:
     from .recipe import BaseRecipe  # noqa
 
 
-def str_presenter(dumper, data):
+def str_representer(dumper, data):
     if len(data.splitlines()) > 1:
         return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
 
-yaml.add_representer(str, str_presenter)
+def ordereddict_representer(dumper, data):
+    value = []
+
+    for item_key, item_value in data.items():
+        node_key = dumper.represent_data(item_key)
+        node_value = dumper.represent_data(item_value)
+
+        value.append((node_key, node_value))
+
+    return yaml.nodes.MappingNode(u'tag:yaml.org,2002:map', value)
+
+
+yaml.add_representer(OrderedDict, ordereddict_representer)
+
+yaml.add_representer(str, str_representer)
+
+
+def dump_recipe_yaml(recipe: 'BaseRecipe', *args: Any):
+    key_ordering: List[str] = [
+        'name',
+        'description',
+        'ingredients',
+        'directions',
+        'notes',
+        'nutritional_info',
+    ]
+    recipe_dict = OrderedDict()
+    recipe_dict_unsorted = recipe.as_dict()
+
+    for key in key_ordering:
+        if key in recipe_dict_unsorted:
+            recipe_dict[key] = recipe_dict_unsorted.pop(key)
+
+    for key in sorted(recipe_dict_unsorted.keys()):
+        recipe_dict[key] = recipe_dict_unsorted.pop(key)
+
+    assert not recipe_dict_unsorted
+
+    dump_yaml(recipe_dict, *args)
 
 
 def dump_yaml(*args: Any):
@@ -66,7 +105,7 @@ def edit_recipe_interactively(recipe: T, editor="vim") -> T:
             )
         )
 
-        dump_yaml(recipe.as_dict(), outf)
+        dump_recipe_yaml(recipe, outf)
 
         outf.seek(0)
 

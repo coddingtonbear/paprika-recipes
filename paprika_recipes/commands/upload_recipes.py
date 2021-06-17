@@ -7,7 +7,7 @@ from yaml import safe_load
 from ..remote import RemoteRecipe
 from ..command import RemoteCommand
 from ..types import ConfigDict
-from ..utils import dump_yaml
+from ..utils import dump_recipe_yaml
 
 
 class Command(RemoteCommand):
@@ -29,6 +29,6 @@ class Command(RemoteCommand):
                 uploaded = remote.upload_recipe(RemoteRecipe.from_dict(safe_load(inf)))
 
             with open(recipe_file, "w") as outf:
-                dump_yaml(uploaded.as_dict(), outf)
+                dump_recipe_yaml(uploaded, outf)
 
         remote.notify()

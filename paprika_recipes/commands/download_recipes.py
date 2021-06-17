@@ -5,7 +5,7 @@ from rich.progress import track
 
 from ..command import RemoteCommand
 from ..types import ConfigDict
-from ..utils import dump_yaml
+from ..utils import dump_recipe_yaml
 
 
 class Command(RemoteCommand):
@@ -29,4 +29,4 @@ class Command(RemoteCommand):
                 self.options.export_path / Path(f"{recipe.name}.paprikarecipe.yaml"),
                 "w",
             ) as outf:
-                dump_yaml(recipe.as_dict(), outf)
+                dump_recipe_yaml(recipe, outf)
