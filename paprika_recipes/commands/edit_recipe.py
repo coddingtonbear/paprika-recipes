@@ -43,7 +43,8 @@ class Command(RemoteCommand):
         try:
             if len(recipes) > 1:
                 choice = enquiries.choose(
-                    "Select a recipe to edit", [recipe.name for recipe in recipes]
+                    "Select a recipe to edit",
+                    [recipe.name for recipe in sorted(recipes, key=lambda row: row.name)]
                 )
                 recipe = list(filter(lambda x: x.name == choice, recipes))[0]
             else:
