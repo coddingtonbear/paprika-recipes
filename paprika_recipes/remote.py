@@ -41,6 +41,9 @@ class Remote(RecipeManager):
 
     def __iter__(self) -> Iterator[RemoteRecipe]:
         for recipe in self.recipes:
+            if recipe.in_trash:
+                continue
+
             yield recipe
 
     @property
