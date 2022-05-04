@@ -51,22 +51,22 @@ class BaseCommand(metaclass=ABCMeta):
 
     @property
     def options(self) -> argparse.Namespace:
-        """ Provides options provided at the command-line."""
+        """Provides options provided at the command-line."""
         return self._options
 
     @property
     def config(self) -> ConfigDict:
-        """ Returns saved configuration as a dictionary."""
+        """Returns saved configuration as a dictionary."""
         return self._config
 
     @classmethod
     def get_help(cls) -> str:
-        """ Retuurns help text for this function."""
+        """Retuurns help text for this function."""
         return ""
 
     @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
-        """ Allows adding additional command-line arguments. """
+        """Allows adding additional command-line arguments."""
         pass
 
     @classmethod
@@ -77,7 +77,7 @@ class BaseCommand(metaclass=ABCMeta):
 
     @abstractmethod
     def handle(self) -> None:
-        """ This is where the work of your function starts. """
+        """This is where the work of your function starts."""
         ...
 
 
@@ -111,7 +111,7 @@ class RemoteCommand(BaseCommand):
     def _add_arguments(
         cls, parser: argparse.ArgumentParser, config: ConfigDict
     ) -> None:
-        """ Allows adding additional command-line arguments. """
+        """Allows adding additional command-line arguments."""
         parser.add_argument(
             "--account", type=str, default=config.get("default_account", "")
         )

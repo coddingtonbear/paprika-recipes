@@ -2,5 +2,6 @@ from setuptools import setup
 
 
 setup(
-    setup_requires=["pbr"], pbr=True,
+    setup_requires=["pbr"],
+    pbr=True,
 )

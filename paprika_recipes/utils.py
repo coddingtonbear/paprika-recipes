@@ -33,7 +33,7 @@ def ordereddict_representer(dumper, data):
 
         value.append((node_key, node_value))
 
-    return yaml.nodes.MappingNode(u'tag:yaml.org,2002:map', value)
+    return yaml.nodes.MappingNode("tag:yaml.org,2002:map", value)
 
 
 yaml.add_representer(OrderedDict, ordereddict_representer)
@@ -41,14 +41,14 @@ yaml.add_representer(OrderedDict, ordereddict_representer)
 yaml.add_representer(str, str_representer)
 
 
-def dump_recipe_yaml(recipe: 'BaseRecipe', *args: Any):
+def dump_recipe_yaml(recipe: "BaseRecipe", *args: Any):
     key_ordering: List[str] = [
-        'name',
-        'description',
-        'ingredients',
-        'directions',
-        'notes',
-        'nutritional_info',
+        "name",
+        "description",
+        "ingredients",
+        "directions",
+        "notes",
+        "nutritional_info",
     ]
     recipe_dict = OrderedDict()
     recipe_dict_unsorted = recipe.as_dict()
