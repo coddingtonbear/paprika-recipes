@@ -4,8 +4,8 @@ from pathlib import Path
 from rich.progress import track
 from yaml import safe_load
 
-from ..remote import RemoteRecipe
 from ..command import RemoteCommand
+from ..remote import RemoteRecipe
 from ..types import ConfigDict
 from ..utils import dump_recipe_yaml
 

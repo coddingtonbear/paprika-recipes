@@ -3,10 +3,10 @@ from typing import Dict, Iterable, Iterator, List, Optional
 
 import requests
 
+from .cache import Cache, NullCache
 from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
-from .cache import Cache, NullCache
-from .types import RemoteRecipeIdentifier, RecipeManager
+from .types import RecipeManager, RemoteRecipeIdentifier
 
 
 @dataclass

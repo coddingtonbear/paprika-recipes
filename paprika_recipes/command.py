@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from abc import ABCMeta, abstractmethod
 from enum import Enum
-import logging
 from pathlib import Path
-import pkg_resources
 from typing import Dict, Optional, Type
+
+import pkg_resources
 
 from .cache import Cache, DirectoryCache, NullCache, WriteOnlyDirectoryCache
 from .exceptions import PaprikaProgrammingError
 from .remote import Remote
-from .utils import get_password_for_email, get_cache_dir
 from .types import ConfigDict
-
+from .utils import get_cache_dir, get_password_for_email
 
 logger = logging.getLogger(__name__)
 

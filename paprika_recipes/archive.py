@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import IO, List, Iterable, Optional
-from zipfile import ZipFile, ZIP_DEFLATED
+from typing import IO, Iterable, List, Optional
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from .recipe import BaseRecipe
-from .types import RecipeManager, UNKNOWN
+from .types import UNKNOWN, RecipeManager
 
 
 @dataclass

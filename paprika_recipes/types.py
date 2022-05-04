@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod, abstractproperty
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
+
 from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
@@ -20,8 +21,7 @@ class RemoteRecipeIdentifier:
 
 class RecipeManager(metaclass=ABCMeta):
     def __iter__(self) -> Iterator[BaseRecipe]:
-        for recipe in self.recipes:
-            yield recipe
+        yield from self.recipes
 
     @abstractproperty
     def recipes(self) -> Iterable[BaseRecipe]:

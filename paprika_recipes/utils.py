@@ -1,14 +1,14 @@
-from collections import OrderedDict
 import os
-from pathlib import Path
 import subprocess
 import tempfile
+from collections import OrderedDict
+from pathlib import Path
 from textwrap import dedent
-from typing import Any, cast, List, TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List, TypeVar, cast
 
-from appdirs import user_config_dir
 import keyring
 import yaml
+from appdirs import user_config_dir
 
 from .constants import APP_NAME
 from .exceptions import AuthenticationError, PaprikaUserError

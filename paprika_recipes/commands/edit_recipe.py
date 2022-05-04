@@ -3,8 +3,7 @@ import os
 from typing import List
 
 import enquiries
-from rich.progress import track, Progress
-
+from rich.progress import Progress, track
 
 from ..command import RemoteCommand
 from ..exceptions import PaprikaUserError

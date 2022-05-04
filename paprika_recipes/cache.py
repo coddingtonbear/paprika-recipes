@@ -1,10 +1,9 @@
-from abc import ABCMeta, abstractmethod
 import json
 import logging
 import os
+from abc import ABCMeta, abstractmethod
 from pathlib import Path
 from typing import Dict
-
 
 logger = logging.getLogger(__name__)
 

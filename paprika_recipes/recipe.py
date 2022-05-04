@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, asdict
 import datetime
 import gzip
 import hashlib
 import json
-from typing import Any, Dict, IO, List, Type, TypeVar
 import uuid
+from dataclasses import asdict, dataclass, field, fields
+from typing import IO, Any, Dict, List, Type, TypeVar
 
 from .types import UNKNOWN
-
 
 T = TypeVar("T", bound="BaseRecipe")
 
