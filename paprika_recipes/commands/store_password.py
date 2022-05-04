@@ -1,7 +1,7 @@
 from getpass import getpass
 
-import enquiries
 import keyring
+import questionary
 
 from ..command import BaseCommand
 from ..constants import APP_NAME
@@ -28,6 +28,6 @@ class Command(BaseCommand):
             keyring.set_password(APP_NAME, email, password)
             print(f"Password stored for {email}")
 
-        if enquiries.confirm(f"Use {email} as your default account?"):
+        if questionary.confirm(f"Use {email} as your default account?").ask():
             self.config["default_account"] = email
             save_config(self.config)
