@@ -40,11 +40,7 @@ class Remote(RecipeManager):
         self._cache = cache if cache else NullCache()
 
     def __iter__(self) -> Iterator[RemoteRecipe]:
-        for recipe in self.recipes:
-            if recipe.in_trash:
-                continue
-
-            yield recipe
+        yield from self.recipes
 
     @property
     def recipes(self) -> Iterable[RemoteRecipe]:

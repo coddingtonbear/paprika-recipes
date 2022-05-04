@@ -2,7 +2,7 @@ import argparse
 import os
 from typing import List
 
-import enquiries
+import questionary
 from rich.progress import Progress, track
 
 from ..command import RemoteCommand
@@ -31,6 +31,9 @@ class Command(RemoteCommand):
         ):
             matched = True
 
+            if recipe.in_trash:
+                continue
+
             for term in self.options.search_terms:
                 if term.lower() not in recipe.name.lower():
                     matched = False
@@ -41,14 +44,14 @@ class Command(RemoteCommand):
 
         try:
             if len(recipes) > 1:
-                choice = enquiries.choose(
+                choice = questionary.select(
                     "Select a recipe to edit",
                     [
-                        recipe.name
+                        questionary.Choice(recipe.name, recipe.uid)
                         for recipe in sorted(recipes, key=lambda row: row.name)
                     ],
-                )
-                recipe = list(filter(lambda x: x.name == choice, recipes))[0]
+                ).ask()
+                recipe = list(filter(lambda x: x.uid == choice, recipes))[0]
             else:
                 recipe = recipes[0]
         except IndexError:
