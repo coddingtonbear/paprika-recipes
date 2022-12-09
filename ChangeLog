@@ -1,6 +1,22 @@
 CHANGES
 =======
 
+2.4.0
+-----
+
+* Completely replace enquiries
+* Switch to 'questionary' from 'enquiries'; add handling for multiple recipes having the same name
+* Reformatting; adding pre-commit
+* Reformatting with 'black'
+* Do not list recipes from remote that have been deleted
+
+2.3.0
+-----
+
+* Show name, ingredients, instructions near top of recipe YAML files
+* When displaying list of recipes; display them in alphabetical order
+* Updating changelog
+
 2.2.0
 -----
 
