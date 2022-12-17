@@ -24,9 +24,10 @@ class Command(BaseCommand):
             self.options.export_path.mkdir(parents=True, exist_ok=True)
 
             for recipe in archive:
+                recipe_path = recipe.name.replace('/', ' ')
                 with open(
                     self.options.export_path
-                    / Path(f"{recipe.name}.paprikarecipe.yaml"),
+                    / Path(f"{recipe_path}.paprikarecipe.yaml"),
                     "w",
                 ) as outf:
                     dump_recipe_yaml(recipe, outf)
