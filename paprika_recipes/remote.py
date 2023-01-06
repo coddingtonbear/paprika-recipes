@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, List, Optional
 
 import requests
+import os
+import urllib
 
 from .cache import Cache, NullCache
 from .exceptions import PaprikaError, RequestError
@@ -73,6 +75,13 @@ class Remote(RecipeManager):
 
     def count(self) -> int:
         return len(self._get_remote_recipe_identifiers())
+
+    def fetch_recipe_image(self, recipe: RemoteRecipe):
+        if recipe.image_url:
+            result = requests.request("GET", recipe.image_url)
+            result.raise_for_status()
+
+            return result.content
 
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         recipe.update_hash()
