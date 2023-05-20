@@ -74,6 +74,10 @@ class BaseRecipe:
     def update_hash(self):
         self.hash = self.calculate_hash()
 
+    @property
+    def safe_name(self):
+        return self.name.replace("/", "%2F")
+
     def __str__(self):
         return self.name
 
