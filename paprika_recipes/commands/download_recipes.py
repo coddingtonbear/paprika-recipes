@@ -26,7 +26,7 @@ class Command(RemoteCommand):
             remote, total=remote.count(), description="Downloading Recipes"
         ):
             with open(
-                self.options.export_path / Path(f"{recipe.name}.paprikarecipe.yaml"),
+                self.options.export_path / Path(f"{recipe.safe_name}.paprikarecipe.yaml"),
                 "w",
             ) as outf:
                 dump_recipe_yaml(recipe, outf)
