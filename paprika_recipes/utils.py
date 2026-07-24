@@ -4,7 +4,7 @@ import tempfile
 from collections import OrderedDict
 from pathlib import Path
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, List, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import keyring
 import yaml
@@ -42,7 +42,7 @@ yaml.add_representer(str, str_representer)
 
 
 def dump_recipe_yaml(recipe: "BaseRecipe", *args: Any):
-    key_ordering: List[str] = [
+    key_ordering: list[str] = [
         "name",
         "description",
         "ingredients",
@@ -96,14 +96,10 @@ T = TypeVar("T", bound="BaseRecipe")
 
 def edit_recipe_interactively(recipe: T, editor="vim") -> T:
     with tempfile.NamedTemporaryFile(suffix=".paprikarecipe.yaml", mode="w+") as outf:
-        outf.write(
-            dedent(
-                """\
+        outf.write(dedent("""\
             # Please modify your recipe below, then save and exit.
             # To cancel, delete all content from this file.
-        """
-            )
-        )
+        """))
 
         dump_recipe_yaml(recipe, outf)
 
@@ -143,18 +139,18 @@ def get_default_config_path() -> Path:
     return root_path / "config.yaml"
 
 
-def get_config(path: Path = None) -> ConfigDict:
+def get_config(path: Path | None = None) -> ConfigDict:
     if path is None:
         path = get_default_config_path()
 
     if not os.path.isfile(path):
         return {}
 
-    with open(path, "r") as inf:
+    with open(path) as inf:
         return cast(ConfigDict, load_yaml(inf))
 
 
-def save_config(data: ConfigDict, path: Path = None) -> None:
+def save_config(data: ConfigDict, path: Path | None = None) -> None:
     if path is None:
         path = get_default_config_path()
 

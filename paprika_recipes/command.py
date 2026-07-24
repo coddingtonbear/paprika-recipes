@@ -4,10 +4,8 @@ import argparse
 import logging
 from abc import ABCMeta, abstractmethod
 from enum import Enum
+from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Dict, Optional, Type
-
-import pkg_resources
 
 from .cache import Cache, DirectoryCache, NullCache, WriteOnlyDirectoryCache
 from .exceptions import PaprikaProgrammingError
@@ -18,11 +16,9 @@ from .utils import get_cache_dir, get_password_for_email
 logger = logging.getLogger(__name__)
 
 
-def get_installed_commands() -> Dict[str, Type[BaseCommand]]:
-    possible_commands: Dict[str, Type[BaseCommand]] = {}
-    for entry_point in pkg_resources.iter_entry_points(
-        group="paprika_recipes.commands"
-    ):
+def get_installed_commands() -> dict[str, type[BaseCommand]]:
+    possible_commands: dict[str, type[BaseCommand]] = {}
+    for entry_point in entry_points(group="paprika_recipes.commands"):
         try:
             loaded_class = entry_point.load()
         except ImportError:
@@ -65,9 +61,10 @@ class BaseCommand(metaclass=ABCMeta):
         return ""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(  # noqa: B027
+        cls, parser: argparse.ArgumentParser, config: ConfigDict
+    ) -> None:
         """Allows adding additional command-line arguments."""
-        pass
 
     @classmethod
     def _add_arguments(
@@ -82,7 +79,7 @@ class BaseCommand(metaclass=ABCMeta):
 
 
 class RemoteCommand(BaseCommand):
-    _cache: Optional[Cache] = None
+    _cache: Cache | None = None
 
     class CacheChoices(Enum):
         none = "none"
