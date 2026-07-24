@@ -1,6 +1,25 @@
 CHANGES
 =======
 
+2.5.0
+-----
+
+* Fix edits being silently discarded when editing recipes (#8)
+* Surface API and configuration errors instead of failing silently
+* Replace stale lint workflow with a CI workflow that runs tests
+* Reformat with current black/isort/pyupgrade
+* Fix latent bugs; add retries and a test suite
+* Modernize for current Python environments
+* Get token from v1 API
+* Add encoding kwarg to \`download-recipes\`
+* Add encoding kwarg to extract\_archive
+* Encode "/" in filenames
+
+2.4.1
+-----
+
+* Adding missing 'typing\_extensions' requirement
+
 2.4.0
 -----
 
