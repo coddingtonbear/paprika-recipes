@@ -78,7 +78,11 @@ def load_yaml(*args: Any) -> Any:
 
 def get_password_for_email(email: str) -> str:
     if not email:
-        raise AuthenticationError("No account was specified.")
+        raise AuthenticationError(
+            "No account was specified; run `paprika-recipes store-password` "
+            "to store credentials and select a default account, or name an "
+            "account explicitly using `--account`."
+        )
 
     password = keyring.get_password(APP_NAME, email)
 

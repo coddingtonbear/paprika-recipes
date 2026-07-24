@@ -120,8 +120,17 @@ class Remote(RecipeManager):
         )
         result.raise_for_status()
 
-        if "error" in result.json():
-            raise RequestError()
+        try:
+            data = result.json()
+        except ValueError:
+            raise RequestError(
+                f"Expected a JSON response from {method.upper()} {path}, "
+                f"but received: {result.text[:200]}"
+            )
+
+        if "error" in data:
+            message = (data.get("error") or {}).get("message") or "Unknown error"
+            raise RequestError(f"{method.upper()} {path} returned an error: {message}")
 
         return result
 
