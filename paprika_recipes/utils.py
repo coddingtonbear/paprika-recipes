@@ -98,30 +98,34 @@ def get_password_for_email(email: str) -> str:
 T = TypeVar("T", bound="BaseRecipe")
 
 
-def edit_recipe_interactively(recipe: T, editor="vim") -> T:
-    with tempfile.NamedTemporaryFile(suffix=".paprikarecipe.yaml", mode="w+") as outf:
-        outf.write(dedent("""\
-            # Please modify your recipe below, then save and exit.
-            # To cancel, delete all content from this file.
-        """))
+def edit_recipe_interactively(recipe: T, editor: str = "vim") -> T:
+    handle, filename = tempfile.mkstemp(suffix=".paprikarecipe.yaml")
+    path = Path(filename)
 
-        dump_recipe_yaml(recipe, outf)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as outf:
+            outf.write(dedent("""\
+                    # Please modify your recipe below, then save and exit.
+                    # To cancel, delete all content from this file.
+                """))
 
-        outf.seek(0)
+            dump_recipe_yaml(recipe, outf)
 
-        proc = subprocess.Popen([editor, outf.name])
+        proc = subprocess.Popen([editor, str(path)])
         proc.wait()
 
-        outf.seek(0)
+        # Editors commonly save by writing a new file and renaming it into
+        # place, which leaves our original descriptor pointing at the
+        # now-replaced file; read the edited contents back by name instead.
+        with open(path, encoding="utf-8") as inf:
+            contents = inf.read()
 
-        contents = outf.read().strip()
-
-        if not contents:
+        if not contents.strip():
             raise PaprikaUserError("Empty recipe found; aborting")
 
-        outf.seek(0)
-
-        return recipe.__class__.from_dict(yaml.safe_load(outf))
+        return recipe.__class__.from_dict(yaml.safe_load(contents))
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def get_config_dir() -> Path:

@@ -19,7 +19,7 @@ class Command(RemoteCommand):
     def handle(self) -> None:
         remote = self.get_remote()
 
-        created = edit_recipe_interactively(RemoteRecipe())
+        created = edit_recipe_interactively(RemoteRecipe(), editor=self.options.editor)
 
         remote.upload_recipe(created)
         remote.notify()

@@ -56,7 +56,7 @@ class Command(RemoteCommand):
         except IndexError:
             raise PaprikaUserError("No matching recipes were found.")
 
-        created = edit_recipe_interactively(recipe)
+        created = edit_recipe_interactively(recipe, editor=self.options.editor)
 
         with Progress() as pb:
             task_id = pb.add_task("Uploading Recipe", total=1)
