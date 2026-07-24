@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import IO, Iterable, List, Optional
+from typing import IO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from .recipe import BaseRecipe
@@ -10,12 +11,15 @@ from .types import UNKNOWN, RecipeManager
 
 @dataclass
 class ArchiveRecipe(BaseRecipe):
-    photos: List[UNKNOWN] = field(default_factory=list)
-    photo_data: Optional[str] = None
+    photos: list[UNKNOWN] = field(default_factory=list)
+    photo_data: str | None = None
 
 
 class Archive(RecipeManager):
-    _recipes: List[ArchiveRecipe] = []
+    _recipes: list[ArchiveRecipe]
+
+    def __init__(self):
+        self._recipes = []
 
     @property
     def recipes(self) -> Iterable[ArchiveRecipe]:

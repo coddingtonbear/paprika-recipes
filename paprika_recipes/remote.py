@@ -1,7 +1,9 @@
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .cache import Cache, NullCache
 from .exceptions import PaprikaError, RequestError
@@ -14,13 +16,13 @@ class RemoteRecipe(BaseRecipe):
     in_trash: bool = False
     is_pinned: bool = False
     on_favorites: bool = False
-    on_grocery_list: Optional[str] = None
-    photo_url: Optional[str] = None
-    scale: Optional[str] = None
+    on_grocery_list: str | None = None
+    photo_url: str | None = None
+    scale: str | None = None
 
 
 class Remote(RecipeManager):
-    _bearer_token: Optional[str] = None
+    _bearer_token: str | None = None
 
     _domain: str
     _email: str
@@ -31,13 +33,25 @@ class Remote(RecipeManager):
         email: str,
         password: str,
         domain: str = "www.paprikaapp.com",
-        cache: Optional[Cache] = None,
+        cache: Cache | None = None,
     ):
         super().__init__()
         self._email = email
         self._password = password
         self._domain = domain
         self._cache = cache if cache else NullCache()
+        self._session = requests.Session()
+        self._session.mount(
+            "https://",
+            HTTPAdapter(
+                max_retries=Retry(
+                    total=5,
+                    backoff_factor=1,
+                    status_forcelist=[429, 500, 502, 503, 504],
+                    allowed_methods=["GET", "POST"],
+                )
+            ),
+        )
 
     def __iter__(self) -> Iterator[RemoteRecipe]:
         yield from self.recipes
@@ -50,7 +64,7 @@ class Remote(RecipeManager):
     def get_recipe_by_id(self, id: str, hash: str) -> RemoteRecipe:
         all_fields = RemoteRecipe.get_all_fields()
 
-        data: Dict = {}
+        data: dict = {}
 
         if self._cache.is_cached(id, hash):
             data = self._cache.read_from_cache(id, hash)
@@ -88,7 +102,7 @@ class Remote(RecipeManager):
     def add_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         return self.upload_recipe(recipe)
 
-    def _get_remote_recipe_identifiers(self) -> List[RemoteRecipeIdentifier]:
+    def _get_remote_recipe_identifiers(self) -> list[RemoteRecipeIdentifier]:
         recipes = self._request("get", "/api/v2/sync/recipes/")
 
         return [
@@ -101,7 +115,9 @@ class Remote(RecipeManager):
             kwargs.setdefault("headers", {})[
                 "Authorization"
             ] = f"Bearer {self.bearer_token}"
-        result = requests.request(method, f"https://{self._domain}{path}", **kwargs)
+        result = self._session.request(
+            method, f"https://{self._domain}{path}", **kwargs
+        )
         result.raise_for_status()
 
         if "error" in result.json():

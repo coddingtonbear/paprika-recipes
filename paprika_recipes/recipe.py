@@ -6,7 +6,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from typing import IO, Any, Dict, List, Type, TypeVar
+from typing import IO, Any, TypeVar
 
 from .types import UNKNOWN
 
@@ -15,9 +15,13 @@ T = TypeVar("T", bound="BaseRecipe")
 
 @dataclass
 class BaseRecipe:
-    categories: List[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
     cook_time: str = ""
-    created: str = field(default_factory=lambda: str(datetime.datetime.utcnow())[0:19])
+    created: str = field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    )
     description: str = ""
     difficulty: str = ""
     directions: str = ""
@@ -47,12 +51,16 @@ class BaseRecipe:
         return fields(cls)
 
     @classmethod
-    def from_file(cls: Type[T], data: IO[bytes]) -> T:
+    def from_file(cls: type[T], data: IO[bytes]) -> T:
         return cls.from_dict(json.loads(gzip.open(data).read()))
 
     @classmethod
-    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
-        return cls(**data)
+    def from_dict(cls: type[T], data: dict[str, Any]) -> T:
+        # Recipes may hold fields from a different context than this
+        # class (e.g. a remote recipe's `in_trash` appearing in a file
+        # fed to `create-archive`); ignore fields we don't know about.
+        known_fields = {field.name for field in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known_fields})
 
     def as_paprikarecipe(self) -> bytes:
         return gzip.compress(self.as_json().encode("utf-8"))
