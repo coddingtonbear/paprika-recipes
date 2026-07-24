@@ -28,5 +28,6 @@ class Command(RemoteCommand):
             with open(
                 self.options.export_path / Path(f"{recipe.name}.paprikarecipe.yaml"),
                 "w",
+                encoding='utf-8'
             ) as outf:
                 dump_recipe_yaml(recipe, outf)
