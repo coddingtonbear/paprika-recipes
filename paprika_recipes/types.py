@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from abc import ABCMeta, abstractmethod, abstractproperty
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterable, Iterator
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import TypedDict
 
@@ -24,12 +25,10 @@ class RecipeManager(metaclass=ABCMeta):
         yield from self.recipes
 
     @abstractproperty
-    def recipes(self) -> Iterable[BaseRecipe]:
-        ...
+    def recipes(self) -> Iterable[BaseRecipe]: ...
 
     @abstractmethod
-    def count(self) -> int:
-        ...
+    def count(self) -> int: ...
 
 
 class ConfigDict(TypedDict, total=False):

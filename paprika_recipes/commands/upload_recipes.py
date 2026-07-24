@@ -25,7 +25,7 @@ class Command(RemoteCommand):
         files = list(self.options.import_path.iterdir())
 
         for recipe_file in track(files, description="Uploading Recipes"):
-            with open(recipe_file, "r") as inf:
+            with open(recipe_file) as inf:
                 uploaded = remote.upload_recipe(RemoteRecipe.from_dict(safe_load(inf)))
 
             with open(recipe_file, "w") as outf:

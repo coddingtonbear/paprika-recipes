@@ -3,7 +3,6 @@ import logging
 import os
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -14,30 +13,26 @@ class NotFound(Exception):
 
 class Cache(metaclass=ABCMeta):
     @abstractmethod
-    def is_cached(self, uid: str, hash: str) -> bool:
-        ...
+    def is_cached(self, uid: str, hash: str) -> bool: ...
 
     @abstractmethod
-    def store_in_cache(self, uid: str, hash: str, recipe: Dict):
-        ...
+    def store_in_cache(self, uid: str, hash: str, recipe: dict): ...
 
     @abstractmethod
-    def read_from_cache(self, uid: str, hash: str) -> Dict:
-        ...
+    def read_from_cache(self, uid: str, hash: str) -> dict: ...
 
     @abstractmethod
-    def save(self):
-        ...
+    def save(self): ...
 
 
 class NullCache(Cache):
     def is_cached(self, uid: str, hash: str) -> bool:
         return False
 
-    def store_in_cache(self, uid: str, hash: str, recipe: Dict):
+    def store_in_cache(self, uid: str, hash: str, recipe: dict):
         pass
 
-    def read_from_cache(self, uid: str, hash: str) -> Dict:
+    def read_from_cache(self, uid: str, hash: str) -> dict:
         raise NotImplementedError()
 
     def save(self):
@@ -52,7 +47,7 @@ class DirectoryCache(Cache):
     def is_cached(self, uid: str, hash: str) -> bool:
         return self.index.get(uid) == hash
 
-    def store_in_cache(self, uid: str, hash: str, recipe: Dict):
+    def store_in_cache(self, uid: str, hash: str, recipe: dict):
         self.index[uid] = hash
 
         try:
@@ -61,29 +56,29 @@ class DirectoryCache(Cache):
         except Exception as e:
             logger.exception("Error encountered while writing to cache: %s", e)
 
-    def read_from_cache(self, uid: str, hash: str) -> Dict:
+    def read_from_cache(self, uid: str, hash: str) -> dict:
         if not self.is_cached(uid, hash):
             raise NotFound()
 
         try:
-            with open(self._root_path / f"{uid}.json", "r") as outf:
+            with open(self._root_path / f"{uid}.json") as outf:
                 return json.load(outf)
         except Exception as e:
             logger.exception("Error encountered while loading from cache: %s", e)
             return {}
 
     @property
-    def index(self) -> Dict[str, str]:
+    def index(self) -> dict[str, str]:
         return self._index
 
-    def _load_index(self) -> Dict[str, str]:
+    def _load_index(self) -> dict[str, str]:
         index_path = self._root_path / "index.json"
 
         if not os.path.isfile(index_path):
             return {}
 
         try:
-            with open(index_path, "r") as inf:
+            with open(index_path) as inf:
                 return json.load(inf)
         except Exception as e:
             logger.exception("Error encountered while loading cache index: %s", e)
@@ -101,5 +96,5 @@ class WriteOnlyDirectoryCache(DirectoryCache):
     def is_cached(self, uid: str, hash: str) -> bool:
         return False
 
-    def read_from_cache(self, uid: str, hash: str) -> Dict:
+    def read_from_cache(self, uid: str, hash: str) -> dict:
         raise NotImplementedError()

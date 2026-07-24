@@ -23,7 +23,7 @@ class Command(BaseCommand):
         archive = Archive()
 
         for recipe_file in self.options.export_path.iterdir():
-            with open(recipe_file, "r") as inf:
+            with open(recipe_file) as inf:
                 archive.add_recipe(ArchiveRecipe.from_dict(safe_load(inf)))
 
         with open(self.options.archive_path, "wb") as outf:

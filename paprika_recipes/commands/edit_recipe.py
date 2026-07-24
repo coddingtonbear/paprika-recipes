@@ -1,6 +1,5 @@
 import argparse
 import os
-from typing import List
 
 import questionary
 from rich.progress import Progress, track
@@ -25,7 +24,7 @@ class Command(RemoteCommand):
     def handle(self) -> None:
         remote = self.get_remote()
 
-        recipes: List[RemoteRecipe] = []
+        recipes: list[RemoteRecipe] = []
         for recipe in track(
             remote, total=remote.count(), description="Loading Recipes"
         ):
