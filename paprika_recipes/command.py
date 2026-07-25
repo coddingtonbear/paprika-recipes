@@ -44,6 +44,8 @@ def get_installed_commands() -> dict[str, type[BaseCommand]]:
 
 
 class BaseCommand(metaclass=ABCMeta):
+    _console: Console | None = None
+
     def __init__(self, options: argparse.Namespace):
         self._options: argparse.Namespace = options
         super().__init__()
@@ -52,6 +54,29 @@ class BaseCommand(metaclass=ABCMeta):
     def options(self) -> argparse.Namespace:
         """Provides options provided at the command-line."""
         return self._options
+
+    @property
+    def json_output(self) -> bool:
+        """Is this run being read by a program rather than a person?"""
+        return bool(getattr(self.options, "json", False))
+
+    @property
+    def console(self) -> Console:
+        """Where anything meant for a person goes.
+
+        Under `--json` that is stderr, because stdout belongs entirely to the
+        data -- a progress bar written across it would leave the output
+        unparseable.  That console is also declared non-interactive, so that a
+        missing password is an error rather than a prompt: a script waiting on
+        a prompt it cannot see is indistinguishable from one that has hung.
+        """
+        if self._console is None:
+            self._console = Console(
+                stderr=self.json_output,
+                force_interactive=False if self.json_output else None,
+            )
+
+        return self._console
 
     @classmethod
     def get_help(cls) -> str:
@@ -64,6 +89,14 @@ class BaseCommand(metaclass=ABCMeta):
 
     @classmethod
     def _add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            help=(
+                "write what happened to stdout as JSON, and everything meant "
+                "for a person to stderr."
+            ),
+        )
         cls.add_arguments(parser)
 
     @abstractmethod
@@ -151,7 +184,7 @@ class RemoteCommand(BaseCommand):
 
     def get_remote(self) -> Remote:
         """Connect to an account, asking for whatever we have not been told."""
-        console = Console()
+        console = self.console
 
         self._account = self.get_account() or ask_for_account(console)
 

@@ -1,10 +1,8 @@
 import argparse
 
-from rich.console import Console
-
 from ..command import RepositoryCommand
 from ..constants import ExitCode
-from ..reporting import print_status
+from ..reporting import emit_json, print_status, status_as_json
 from ..repository import Status
 
 
@@ -30,7 +28,10 @@ class Command(RepositoryCommand):
         # is what `pull` is for.
         entries = self.repository.status()
 
-        print_status(Console(), entries)
+        if self.json_output:
+            emit_json(status_as_json(entries))
+        else:
+            print_status(self.console, entries)
 
         # Having local changes is the ordinary state of a working directory,
         # so it is only an "attention" answer when someone asked the question.

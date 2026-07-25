@@ -1,12 +1,10 @@
 import argparse
 from pathlib import Path
 
-from rich.console import Console
-
 from ..command import RemoteCommand
 from ..constants import ExitCode
 from ..exceptions import PaprikaUserError
-from ..reporting import print_report, recipe_progress
+from ..reporting import emit_json, print_report, recipe_progress, report_as_json
 from ..repository import REPOSITORY_DIRNAME, Repository, RepositoryConfig
 from ..sync import Syncer
 
@@ -50,7 +48,6 @@ class Command(RemoteCommand):
         )
 
     def handle(self) -> ExitCode:
-        console = Console()
         directory: Path = self.options.directory
         prefix = self.frontmatter_prefix()
 
@@ -73,11 +70,14 @@ class Command(RemoteCommand):
             ),
         )
 
-        with recipe_progress(console, "Cloning") as on_recipe:
+        with recipe_progress(self.console, "Cloning") as on_recipe:
             report = Syncer(repository, remote, on_recipe).pull()
 
-        print_report(console, report)
-        console.print(f"\nCloned into [bold]{repository.root}[/bold].")
+        if self.json_output:
+            emit_json({**report_as_json(report), "directory": str(repository.root)})
+        else:
+            print_report(self.console, report)
+            self.console.print(f"\nCloned into [bold]{repository.root}[/bold].")
 
         return ExitCode.ATTENTION if report.conflicts else ExitCode.SUCCESS
 

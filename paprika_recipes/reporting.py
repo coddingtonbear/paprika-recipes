@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Final
+from typing import Any, Final
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
@@ -74,6 +76,68 @@ CONFLICTED_LABEL: Final = ("conflicted:", NEEDS_ATTENTION)
 
 ACTION_WIDTH: Final = max(len(label) for label, _ in ACTION_STYLES.values())
 STATUS_WIDTH: Final = max(len(label) for label, _ in STATUS_STYLES.values())
+
+
+#: Bumped when the shape below changes in a way that could break a reader.
+#: Published output is an interface: a script that parses it is entitled to
+#: know when it has stopped being the thing it was written against.
+JSON_VERSION: Final = 1
+
+
+def emit_json(payload: dict[str, Any]) -> None:
+    """Write a command's result to stdout, and nothing else to stdout.
+
+    Deliberately not `rich`: this is data rather than something being shown to
+    anyone, and it should not be wrapped, highlighted or re-flowed to fit a
+    terminal that may not even be there.
+    """
+    json.dump({"version": JSON_VERSION, **payload}, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+def report_as_json(report: SyncReport, dry_run: bool = False) -> dict[str, Any]:
+    """What a sync did, for a reader that is not a person.
+
+    Built from the enum values and the uid rather than from the labels above,
+    which exist to be reworded whenever a better wording turns up.
+    """
+    return {
+        "dry_run": dry_run,
+        "unchanged": report.unchanged,
+        "changes": [
+            {
+                "action": change.action.value,
+                "uid": change.uid or None,
+                "name": change.name,
+                "detail": change.detail,
+            }
+            for change in report.changes
+        ],
+    }
+
+
+def status_as_json(entries: list[WorkingRecipe]) -> dict[str, Any]:
+    """The state of a working directory, for a reader that is not a person."""
+    interesting = [entry for entry in entries if entry.status is not Status.UNCHANGED]
+
+    return {
+        "unchanged": len(entries) - len(interesting),
+        "recipes": [
+            {
+                # A recipe nobody has pushed yet genuinely has no uid; saying
+                # so is more honest than inventing one for the occasion.
+                "uid": entry.uid or None,
+                "name": entry.name,
+                "path": str(entry.path) if entry.path is not None else None,
+                "status": entry.status.value,
+                "conflicted": entry.conflicted,
+                "changed_fields": entry.changed_fields(),
+                "unsyncable": sorted(entry.extras.frontmatter)
+                + [section.text.split("\n", 1)[0] for section in entry.extras.sections],
+            }
+            for entry in sorted(interesting, key=lambda entry: entry.name)
+        ],
+    }
 
 
 @contextmanager
@@ -193,9 +257,10 @@ def print_unsyncable(console: Console, entries: list[WorkingRecipe]) -> None:
         return
 
     console.print(
-        f"\n[{QUIET}]{len(holding)} {_recipes(len(holding))} contain content of "
-        f"your own that Paprika cannot store; it stays in your files and is "
-        f"never uploaded.[/{QUIET}]"
+        f"\n[{QUIET}]{len(holding)} {_recipes(len(holding))} "
+        f"{'contains' if len(holding) == 1 else 'contain'} content of your own "
+        f"that Paprika cannot store; it stays in your files and is never "
+        f"uploaded.[/{QUIET}]"
     )
 
 

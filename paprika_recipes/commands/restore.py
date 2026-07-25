@@ -1,12 +1,10 @@
 import argparse
 from pathlib import Path
 
-from rich.console import Console
-
 from ..command import RepositoryCommand
 from ..constants import ExitCode
 from ..exceptions import PaprikaUserError
-from ..reporting import QUIET, print_report
+from ..reporting import QUIET, emit_json, print_report, report_as_json
 from ..repository import Status, WorkingRecipe
 from ..sync import Action, restore
 
@@ -47,8 +45,6 @@ class Command(RepositoryCommand):
         )
 
     def handle(self) -> ExitCode:
-        console = Console()
-
         entries = self.repository.status()
         changed = [entry for entry in entries if entry.status is not Status.UNCHANGED]
 
@@ -57,15 +53,17 @@ class Command(RepositoryCommand):
         else:
             selected = self.select(changed)
 
-        if not selected:
-            console.print(
+        report = restore(self.repository, selected)
+
+        if self.json_output:
+            emit_json(report_as_json(report))
+        elif not selected:
+            self.console.print(
                 f"[{QUIET}]Nothing to restore; no recipes have been "
                 f"changed.[/{QUIET}]"
             )
-            return ExitCode.SUCCESS
-
-        report = restore(self.repository, selected)
-        print_report(console, report)
+        else:
+            print_report(self.console, report)
 
         # A recipe we could not restore is the one thing here that leaves the
         # directory not as the user asked for it.

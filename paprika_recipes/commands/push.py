@@ -1,10 +1,8 @@
 import argparse
 
-from rich.console import Console
-
 from ..command import RepositorySyncCommand
 from ..constants import ExitCode
-from ..reporting import print_report, recipe_progress
+from ..reporting import emit_json, print_report, recipe_progress, report_as_json
 from ..sync import Syncer
 
 
@@ -22,14 +20,16 @@ class Command(RepositorySyncCommand):
         )
 
     def handle(self) -> ExitCode:
-        console = Console()
         remote = self.get_remote()
 
-        with recipe_progress(console, "Pushing") as on_recipe:
+        with recipe_progress(self.console, "Pushing") as on_recipe:
             report = Syncer(self.repository, remote, on_recipe).push(
                 dry_run=self.options.dry_run
             )
 
-        print_report(console, report, dry_run=self.options.dry_run)
+        if self.json_output:
+            emit_json(report_as_json(report, dry_run=self.options.dry_run))
+        else:
+            print_report(self.console, report, dry_run=self.options.dry_run)
 
         return ExitCode.ATTENTION if report.conflicts else ExitCode.SUCCESS
