@@ -3,6 +3,7 @@ import argparse
 from rich.console import Console
 
 from ..command import RepositorySyncCommand
+from ..constants import ExitCode
 from ..reporting import print_report, recipe_progress
 from ..sync import Syncer
 from ..types import ConfigDict
@@ -21,7 +22,7 @@ class Command(RepositorySyncCommand):
             help="report what would change without changing anything.",
         )
 
-    def handle(self) -> None:
+    def handle(self) -> ExitCode:
         console = Console()
         remote = self.get_remote()
 
@@ -31,3 +32,5 @@ class Command(RepositorySyncCommand):
             )
 
         print_report(console, report, dry_run=self.options.dry_run)
+
+        return ExitCode.ATTENTION if report.conflicts else ExitCode.SUCCESS

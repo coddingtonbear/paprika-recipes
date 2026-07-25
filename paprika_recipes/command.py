@@ -10,7 +10,7 @@ from pathlib import Path
 from rich.console import Console
 
 from .cache import Cache, DirectoryCache, NullCache, WriteOnlyDirectoryCache
-from .constants import DEFAULT_DOMAIN
+from .constants import DEFAULT_DOMAIN, ExitCode
 from .credentials import ask_for_account, authenticate
 from .exceptions import PaprikaProgrammingError
 from .remote import Remote
@@ -78,8 +78,13 @@ class BaseCommand(metaclass=ABCMeta):
         cls.add_arguments(parser, config)
 
     @abstractmethod
-    def handle(self) -> None:
-        """This is where the work of your function starts."""
+    def handle(self) -> ExitCode | None:
+        """This is where the work of your function starts.
+
+        Return an `ExitCode` to say how it went; returning nothing means it
+        went fine.  Failures are raised rather than returned -- the exception
+        carries the explanation, and `cmdline` turns it into the right code.
+        """
         ...
 
 

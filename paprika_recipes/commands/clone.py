@@ -4,6 +4,7 @@ from pathlib import Path
 from rich.console import Console
 
 from ..command import RemoteCommand
+from ..constants import ExitCode
 from ..exceptions import PaprikaUserError
 from ..reporting import print_report, recipe_progress
 from ..repository import REPOSITORY_DIRNAME, Repository, RepositoryConfig
@@ -26,7 +27,7 @@ class Command(RemoteCommand):
             help="where to put the recipes; default: the current directory.",
         )
 
-    def handle(self) -> None:
+    def handle(self) -> ExitCode:
         console = Console()
         directory: Path = self.options.directory
 
@@ -50,3 +51,5 @@ class Command(RemoteCommand):
 
         print_report(console, report)
         console.print(f"\nCloned into [bold]{repository.root}[/bold].")
+
+        return ExitCode.ATTENTION if report.conflicts else ExitCode.SUCCESS

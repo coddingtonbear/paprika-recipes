@@ -4,10 +4,11 @@ from pathlib import Path
 from rich.console import Console
 
 from ..command import RepositoryCommand
+from ..constants import ExitCode
 from ..exceptions import PaprikaUserError
-from ..reporting import print_report
+from ..reporting import QUIET, print_report
 from ..repository import Status, WorkingRecipe
-from ..sync import restore
+from ..sync import Action, restore
 from ..types import ConfigDict
 
 
@@ -46,7 +47,7 @@ class Command(RepositoryCommand):
             help="restore every recipe that has been changed or deleted.",
         )
 
-    def handle(self) -> None:
+    def handle(self) -> ExitCode:
         console = Console()
 
         entries = self.repository.status()
@@ -59,12 +60,17 @@ class Command(RepositoryCommand):
 
         if not selected:
             console.print(
-                "[bright_black]Nothing to restore; no recipes have been "
-                "changed.[/bright_black]"
+                f"[{QUIET}]Nothing to restore; no recipes have been "
+                f"changed.[/{QUIET}]"
             )
-            return
+            return ExitCode.SUCCESS
 
-        print_report(console, restore(self.repository, selected))
+        report = restore(self.repository, selected)
+        print_report(console, report)
+
+        # A recipe we could not restore is the one thing here that leaves the
+        # directory not as the user asked for it.
+        return ExitCode.ATTENTION if report.of(Action.SKIPPED) else ExitCode.SUCCESS
 
     def select(self, changed: list[WorkingRecipe]) -> list[WorkingRecipe]:
         """Pick out the recipes named on the command line."""
