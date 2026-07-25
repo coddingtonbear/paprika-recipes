@@ -1,5 +1,3 @@
-# Paprika-Recipes: Keep your paprika recipes in a directory of markdown files
-
 [Paprika](https://www.paprikaapp.com/) is a lovely recipe app, but your recipes are then trapped inside it. This tool checks them out into a directory of plain markdown files that you can edit in whatever you already use -- your editor, your note vault, your usual git workflow -- and then sync your changes back.
 
 ```bash
