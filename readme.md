@@ -27,19 +27,18 @@ Paprika has no official public API; this tool speaks the same sync protocol the 
 
 <!-- toc -->
 
-- [Paprika-Recipes: Keep your paprika recipes in a directory of markdown files](#paprika-recipes-keep-your-paprika-recipes-in-a-directory-of-markdown-files)
-  - [Why](#why)
-  - [Installation](#installation)
-  - [Getting started](#getting-started)
-    - [Writing a recipe yourself](#writing-a-recipe-yourself)
-  - [Commands](#commands)
-  - [How syncing works](#how-syncing-works)
-    - [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
-    - [Recipe files](#recipe-files)
-  - [Working with exported archives](#working-with-exported-archives)
-  - [Scripting](#scripting)
-  - [Upgrading from 2.x](#upgrading-from-2x)
-  - [Other tools](#other-tools)
+- [Why](#why)
+- [Installation](#installation)
+- [Getting started](#getting-started)
+  - [Writing a recipe yourself](#writing-a-recipe-yourself)
+- [Commands](#commands)
+- [How syncing works](#how-syncing-works)
+  - [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
+  - [Recipe files](#recipe-files)
+- [Working with exported archives](#working-with-exported-archives)
+- [Scripting](#scripting)
+- [Upgrading from 2.x](#upgrading-from-2x)
+- [Other tools](#other-tools)
 
 <!-- tocstop -->
 
