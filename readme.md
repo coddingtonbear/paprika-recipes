@@ -5,7 +5,7 @@
 ```bash
 # First: clone your recipes into a folder somewhere
 $ paprika-recipes clone you@example.com ~/recipes
-$ cd recipes
+$ cd ~/recipes
 # Second: make your changes to whatever recipe using whatever editor
 $ vim Khachapuri.md
 # Finally: push up your changes to Paprika
@@ -29,18 +29,17 @@ Paprika has no official public API; this tool speaks the same sync protocol the 
 
 <!-- toc -->
 
-- [Paprika-Recipes: Keep your paprika recipes in a directory of markdown files](#paprika-recipes-keep-your-paprika-recipes-in-a-directory-of-markdown-files)
-  - [Why](#why)
-  - [Installation](#installation)
-  - [Getting started](#getting-started)
-    - [Writing a recipe yourself](#writing-a-recipe-yourself)
-  - [Commands](#commands)
-  - [How syncing works](#how-syncing-works)
-    - [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
-    - [Recipe files](#recipe-files)
-  - [Working with exported archives](#working-with-exported-archives)
-  - [Scripting](#scripting)
-  - [Other tools](#other-tools)
+- [Installation](#installation)
+- [Getting started](#getting-started)
+  * [Writing a recipe yourself](#writing-a-recipe-yourself)
+- [Commands](#commands)
+- [How syncing works](#how-syncing-works)
+  * [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
+  * [Recipe files](#recipe-files)
+- [Working with exported archives](#working-with-exported-archives)
+- [Scripting](#scripting)
+- [Upgrading from 2.x](#upgrading-from-2x)
+- [Other tools](#other-tools)
 
 <!-- tocstop -->
 
@@ -280,6 +279,22 @@ Exit codes say what happened without your having to read the output:
 `status` exits 0 whether or not you have local changes, since having them is the ordinary state of a working directory. Pass `--exit-code` — after `git diff --exit-code` — to have it answer that question instead.
 
 Because `--json` implies nobody is watching, it will not stop to ask for a password; run any command once from a terminal to get your credentials into the keyring first.
+
+## Upgrading from 2.x
+
+Version 3 is a rethink rather than an upgrade: 2.x moved YAML files up and down wholesale, while 3.x keeps markdown files under real change tracking. The old commands map like so:
+
+| 2.x | Where it went |
+|---|---|
+| `download-recipes` | `clone` — which also remembers what it wrote, so that `status`, `pull` and `push` can know what changed since. |
+| `upload-recipes` | `push` — which sends only what you actually changed, and shows you first. |
+| `edit-recipe`, `create-recipe` | Retired. The whole point now is that recipes are ordinary files: edit them in your own editor, write a new one with a `# Title`, and `push`. |
+| `store-password` | Retired. `clone` asks for your password the first time it needs it — and it reads the same keyring entry `store-password` wrote, so a password you stored under 2.x is found without asking. |
+| `extract-archive`, `create-archive` | Still here, now reading and writing the same markdown files as everything else. |
+
+The default account is gone too, along with the global config file: a directory remembers which account it was cloned from, and that is the whole configuration.
+
+A directory that `download-recipes` wrote is not something 3.x can adopt — the files were YAML, and nothing recorded what they looked like when they arrived. Start over with `clone` into a fresh directory; your password is already in the keyring, so it is exactly one command.
 
 ## Other tools
 
