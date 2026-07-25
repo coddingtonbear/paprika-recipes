@@ -1,6 +1,0 @@
-pyyaml>=5.0
-requests>=2.0
-keyring>=21.0
-rich>=12.3.0
-appdirs>=1.4
-typing_extensions>=4.4.0

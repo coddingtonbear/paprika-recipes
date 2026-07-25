@@ -3,9 +3,7 @@ from __future__ import annotations
 from abc import ABCMeta, abstractmethod, abstractproperty
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-from typing_extensions import TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
     from .recipe import BaseRecipe

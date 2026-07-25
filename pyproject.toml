@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paprika-recipes"
+version = "3.0.0.dev0"
+description = "Keep your Paprika recipes in a directory of markdown files."
+readme = { file = "readme.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Adam Coddington", email = "me@adamcoddington.net" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "appdirs>=1.4",
+    "keyring>=21.0",
+    "pyyaml>=5.0",
+    "requests>=2.0",
+    "rich>=12.3.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/coddingtonbear/paprika-recipes/"
+
+[project.scripts]
+paprika-recipes = "paprika_recipes.cmdline:main"
+
+# Commands are discovered rather than imported, so that the command list is a
+# fact about what is installed rather than a list somebody has to remember to
+# keep in step.
+[project.entry-points."paprika_recipes.commands"]
+clone = "paprika_recipes.commands.clone:Command"
+pull = "paprika_recipes.commands.pull:Command"
+push = "paprika_recipes.commands.push:Command"
+status = "paprika_recipes.commands.status:Command"
+restore = "paprika_recipes.commands.restore:Command"
+extract-archive = "paprika_recipes.commands.extract_archive:Command"
+create-archive = "paprika_recipes.commands.create_archive:Command"
+
+[tool.setuptools]
+packages = ["paprika_recipes", "paprika_recipes.commands"]

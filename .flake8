@@ -1,0 +1,9 @@
+[flake8]
+# https://github.com/psf/black#line-length
+max-line-length = 88
+# E203: whitespace before ':' (defer to black)
+# E231: missing whitespace after ',' (defer to black)
+# E501: line length (defer to black)
+# W503: break before binary operators (defer to black)
+# A003: [builtins] allow class attributes to be named after builtins (e.g., `id`)
+extend-ignore = E203, E231, E501, W503, A003
