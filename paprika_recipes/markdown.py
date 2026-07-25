@@ -38,6 +38,14 @@ HEADING_PREFIX: Final = "## "
 #: Written as the document's `# ` title rather than as a frontmatter field.
 TITLE_FIELD: Final = "name"
 
+#: The frontmatter field that says which recipe a file is.
+UID_FIELD: Final = "uid"
+
+#: Suffixes that make a frontmatter key look like somebody's idea of a uid.
+#: Deliberately not a bare `uid` suffix, which would also match a vault's own
+#: `uuid:`.
+UID_SUFFIXES: Final = ("_uid", "-uid")
+
 #: Written directly beneath the title, with no heading of its own.
 DESCRIPTION_FIELD: Final = "description"
 
@@ -161,6 +169,13 @@ def parse_document(content: str, recipe_class: type[T]) -> tuple[T, Extras]:
     data: dict[str, Any] = dict(frontmatter)
     data.update(fields)
 
+    # A file that does not name a uid does not have one.  Without this the
+    # dataclass's default would invent a *different* uid every time the same
+    # file was read, which makes "this recipe has no identity yet"
+    # indistinguishable from "this recipe has one" -- and silently so, since
+    # nothing downstream can tell an invented uid from a real one.
+    data.setdefault(UID_FIELD, "")
+
     return recipe_class.from_dict(data), Extras(
         frontmatter={
             key: value for key, value in frontmatter.items() if key not in known
@@ -177,6 +192,25 @@ def parse_recipe(content: str, recipe_class: type[T]) -> T:
 def read_extras(content: str, recipe_class: type[BaseRecipe]) -> Extras:
     """Read the parts of a document that are not the recipe."""
     return parse_document(content, recipe_class)[1]
+
+
+def foreign_uid_key(extras: Extras) -> str:
+    """A frontmatter key that looks like a uid we did not recognise as ours.
+
+    A recipe file with no uid is ordinarily just a recipe nobody has synced
+    yet.  But a file that carries something *called* a uid while reading as
+    untracked is a different thing entirely: it has an identity we cannot see.
+    That is what a mis-set `frontmatter_prefix` looks like from in here, and
+    treating it as a new recipe would upload a duplicate of something we
+    already have -- while its base copy, now unclaimed, looked like a deletion.
+    """
+    for key in sorted(extras.frontmatter):
+        lowered = key.lower()
+
+        if lowered == UID_FIELD or lowered.endswith(UID_SUFFIXES):
+            return key
+
+    return ""
 
 
 def documents_differ(content: str, rendered: str) -> bool:

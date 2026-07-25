@@ -8,7 +8,13 @@ from zipfile import ZipFile
 
 import pytest
 
-from paprika_recipes.archive import Archive, ArchiveRecipe, attach_photo, detach_photo
+from paprika_recipes.archive import (
+    Archive,
+    ArchiveRecipe,
+    attach_photo,
+    detach_photo,
+    identify,
+)
 from paprika_recipes.commands import create_archive, extract_archive
 from paprika_recipes.exceptions import PaprikaUserError
 from paprika_recipes.markdown import parse_recipe, render_recipe
@@ -275,3 +281,22 @@ class TestCreating:
                 export_path=root,
                 archive_path=tmp_path / "out.paprikarecipes",
             )
+
+
+class TestIdentifyingRecipesToPack:
+    def test_gives_a_recipe_written_by_hand_a_uid(self):
+        """Paprika tracks what it imports by uid, so an archive needs one."""
+        identified = identify(ArchiveRecipe(name="Mine", uid=""))
+
+        assert identified.uid
+
+    def test_gives_two_of_them_different_uids(self):
+        first = identify(ArchiveRecipe(name="Mine", uid=""))
+        second = identify(ArchiveRecipe(name="Yours", uid=""))
+
+        assert first.uid != second.uid
+
+    def test_leaves_an_existing_uid_alone(self):
+        identified = identify(ArchiveRecipe(name="Mine", uid="ABC"))
+
+        assert identified.uid == "ABC"

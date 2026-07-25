@@ -42,9 +42,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
+from .exceptions import PaprikaUserError
+from .markdown import foreign_uid_key
 from .merge import has_conflict_markers, merge_recipes
 from .remote import RemoteRecipe
-from .repository import Repository, Status, WorkingRecipe
+from .repository import (
+    CONFIG_FILENAME,
+    REPOSITORY_DIRNAME,
+    Repository,
+    Status,
+    WorkingRecipe,
+)
 
 
 class RemoteAccount(Protocol):
@@ -113,6 +121,65 @@ class SyncReport:
     def __bool__(self) -> bool:
         """Whether anything happened at all."""
         return bool(self.changes)
+
+
+def refuse_unidentifiable(entries: list[WorkingRecipe]) -> None:
+    """Stop a push that has clearly misread the directory rather than acting on it.
+
+    Every recipe file carries the uid of the recipe it is.  If we stop being
+    able to read those -- a `frontmatter_prefix` that no longer matches what
+    the files were written with, a vault plugin that prunes frontmatter keys
+    it does not recognise -- then the directory looks, from in here, exactly
+    like someone having deleted every recipe they had and written the same
+    number of new ones.  Acting on that reading would trash the whole account
+    and upload a duplicate of everything in it.
+
+    Two signals distinguish that from the real thing, because in the real
+    thing the *files* are gone:
+
+    The precise one is a file with no uid that nonetheless carries something
+    called a uid.  A recipe somebody wrote themselves has no such key; a
+    recipe we wrote and can no longer read does.
+
+    The blunt one is for a directory whose uids were removed outright, which
+    leaves no evidence to find: every recipe we have ever pulled is missing
+    its file, and there are unidentified files sitting there instead.  One
+    recipe deleted and one written is an ordinary afternoon, so this needs at
+    least two, and even then it is only ever raised in preference to deleting
+    somebody's entire collection.
+    """
+    untracked = [entry for entry in entries if entry.untracked]
+
+    if not untracked:
+        return
+
+    for entry in untracked:
+        key = foreign_uid_key(entry.extras)
+
+        if key:
+            raise PaprikaUserError(
+                f"{entry.path} has a `{key}:` in its frontmatter, but no uid "
+                "this directory can read. That usually means the file was "
+                "written with a different `frontmatter_prefix` than the one "
+                f"in {REPOSITORY_DIRNAME}/{CONFIG_FILENAME}. Nothing has been "
+                "pushed; a push would upload this as a new recipe and trash "
+                "the one it already is."
+            )
+
+    tracked = [entry for entry in entries if not entry.untracked]
+    missing = [entry for entry in tracked if entry.status is Status.DELETED]
+
+    if len(missing) > 1 and len(missing) == len(tracked):
+        raise PaprikaUserError(
+            f"Every one of the {len(missing)} recipes this directory has "
+            f"pulled is missing its file, and {len(untracked)} "
+            f"{'file' if len(untracked) == 1 else 'files'} we cannot identify "
+            "are here instead. That is what a directory looks like when its "
+            "recipe files have stopped being readable, so nothing has been "
+            "pushed.\n\nIf you really did mean to delete every recipe, move "
+            "the unidentified files out of the directory, push, and move them "
+            "back."
+        )
 
 
 def restore(repository: Repository, entries: Iterable[WorkingRecipe]) -> SyncReport:
@@ -308,12 +375,17 @@ class Syncer:
         """Send local changes to the server."""
         report = SyncReport()
 
+        entries = self._repository.status()
+        refuse_unidentifiable(entries)
+
         index = self._remote.get_recipe_index()
         uploaded: list[str] = []
 
-        for entry in self._repository.status():
-            if self._push_one(report, entry, index, dry_run):
-                uploaded.append(entry.uid)
+        for entry in entries:
+            uid = self._push_one(report, entry, index, dry_run)
+
+            if uid:
+                uploaded.append(uid)
 
         if dry_run:
             return report
@@ -334,18 +406,19 @@ class Syncer:
         entry: WorkingRecipe,
         index: dict[str, str],
         dry_run: bool,
-    ) -> bool:
-        """Push a single recipe, reporting whether it was sent to the server."""
+    ) -> str:
+        """Push a single recipe; return its uid if it was sent to the server."""
         if entry.status is Status.UNCHANGED:
             report.unchanged += 1
-            return False
+            return ""
 
         if entry.status is Status.DELETED or entry.recipe is None:
             return self._push_removal(report, entry, index, dry_run)
 
-        name = entry.recipe.name
+        recipe = entry.recipe
+        name = recipe.name
 
-        if has_conflict_markers(entry.recipe):
+        if has_conflict_markers(recipe):
             report.record(
                 Action.CONFLICT,
                 entry.uid,
@@ -353,10 +426,23 @@ class Syncer:
                 "still has unresolved conflict markers in it; edit them out "
                 "(or `restore` it) before pushing",
             )
-            return False
+            return ""
 
         if entry.status is Status.ADDED:
-            if entry.uid in index:
+            if entry.untracked:
+                if dry_run:
+                    report.record(Action.CREATED, "", name)
+                    return ""
+
+                # Now that this recipe is about to exist on the server, it
+                # needs an identity that outlives this run.
+                entry = self._repository.adopt(entry)
+
+                # Adopting only ever rewrites the uid of the recipe we just
+                # read out of the file.
+                assert entry.recipe is not None
+                recipe = entry.recipe
+            elif entry.uid in index:
                 report.record(
                     Action.CONFLICT,
                     entry.uid,
@@ -364,7 +450,7 @@ class Syncer:
                     "is already on the server, but we have no record of having "
                     "pulled it; pull first to see what it says",
                 )
-                return False
+                return ""
         elif not entry.has_local_changes():
             report.record(
                 Action.SKIPPED,
@@ -372,7 +458,7 @@ class Syncer:
                 name,
                 "differs only in how the file is written, not in what it says",
             )
-            return False
+            return ""
         elif entry.base is not None and index.get(entry.uid) != entry.base.hash:
             report.record(
                 Action.CONFLICT,
@@ -380,13 +466,13 @@ class Syncer:
                 name,
                 "has changed on the server since it was pulled; pull first",
             )
-            return False
+            return ""
 
         action = Action.CREATED if entry.status is Status.ADDED else Action.UPLOADED
 
         if not dry_run:
             self._notify(name)
-            self._remote.upload_recipe(entry.recipe)
+            self._remote.upload_recipe(recipe)
 
         # Uploading is the moment to say what is not being uploaded: the rest
         # of the file stays behind, and someone who wrote it there deserves to
@@ -397,7 +483,7 @@ class Syncer:
             action, entry.uid, name, f"{kept} stayed in your file" if kept else ""
         )
 
-        return not dry_run
+        return "" if dry_run else entry.uid
 
     def _push_removal(
         self,
@@ -405,7 +491,7 @@ class Syncer:
         entry: WorkingRecipe,
         index: dict[str, str],
         dry_run: bool,
-    ) -> bool:
+    ) -> str:
         """Move a recipe whose file was deleted into Paprika's trash.
 
         The base copy is kept until the trashing has actually happened, so
@@ -421,7 +507,7 @@ class Syncer:
             report.record(
                 Action.REMOVED, entry.uid, name, "was already gone from the server"
             )
-            return False
+            return ""
 
         if index[entry.uid] != entry.base.hash:
             report.record(
@@ -431,7 +517,7 @@ class Syncer:
                 "was deleted locally, but has since changed on the server; "
                 "pull to see what changed, or `restore` to keep it",
             )
-            return False
+            return ""
 
         if not dry_run:
             self._notify(name)
@@ -441,7 +527,7 @@ class Syncer:
         report.record(Action.TRASHED, entry.uid, name)
 
         # Nothing to re-fetch: refreshing would write the file back out.
-        return False
+        return ""
 
     def _refresh(self, uids: Iterable[str]) -> None:
         """Re-pull recipes we just uploaded, so their base copies are the server's.

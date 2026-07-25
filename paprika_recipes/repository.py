@@ -34,14 +34,15 @@ whether the *server's* copy has moved.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Container, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
 from .constants import DEFAULT_DOMAIN
-from .exceptions import PaprikaUserError
+from .exceptions import PaprikaProgrammingError, PaprikaUserError
 from .markdown import (
     Extras,
     documents_differ,
@@ -112,6 +113,17 @@ class WorkingRecipe:
             # `hash` is the server's token, not ours to diff on.
             if key != "hash" and current[key] != base.get(key)
         )
+
+    @property
+    def untracked(self) -> bool:
+        """Is this a recipe file that has never been given an identity?
+
+        A recipe someone wrote themselves, in other words: it is on its way
+        to Paprika but has not been there yet, so there is no uid in its
+        frontmatter to say which recipe it is.  It gets one at the moment it
+        is pushed; see `Repository.adopt`.
+        """
+        return not self.uid
 
     @property
     def conflicted(self) -> bool:
@@ -370,29 +382,66 @@ class Repository:
             self._root, recipe, {path.resolve() for path in existing.values()}
         )
 
-    def paths_by_uid(self) -> dict[str, Path]:
-        """Map each recipe's uid to the file holding it.
+    def scan(self) -> tuple[dict[str, Path], list[Path]]:
+        """Every recipe file, split by whether it says which recipe it is.
 
         We read the uid out of each file rather than keeping an index, so that
-        renaming a file in the working directory just works.
+        renaming a file in the working directory just works.  A file with no
+        uid is not an error and not ignored: it is a recipe someone wrote
+        that has not been to Paprika yet.
         """
-        result: dict[str, Path] = {}
+        tracked: dict[str, Path] = {}
+        untracked: list[Path] = []
 
         for path in self.working_paths():
             recipe = self.read_working(path)
 
             if not recipe.uid:
+                untracked.append(path)
                 continue
 
-            if recipe.uid in result:
+            if recipe.uid in tracked:
                 raise PaprikaUserError(
                     f"Two files claim the same recipe uid {recipe.uid}: "
-                    f"{result[recipe.uid]} and {path}."
+                    f"{tracked[recipe.uid]} and {path}."
                 )
 
-            result[recipe.uid] = path
+            tracked[recipe.uid] = path
 
-        return result
+        return tracked, untracked
+
+    def paths_by_uid(self) -> dict[str, Path]:
+        """Map each recipe's uid to the file holding it."""
+        return self.scan()[0]
+
+    def adopt(self, entry: WorkingRecipe) -> WorkingRecipe:
+        """Give an untracked recipe a uid of its own, and write it into its file.
+
+        Done at the moment the recipe is first sent to Paprika, rather than
+        when its file is first read.  Two reasons, and the second is the one
+        that matters:
+
+        `status` is what someone runs to find out what is *about* to happen,
+        and a command asked that question should not answer it by writing to
+        their files.
+
+        More importantly, assigning on read would make an unreadable directory
+        unrecoverable.  If every file suddenly stopped being identifiable --
+        a `frontmatter_prefix` changed, a vault plugin that prunes frontmatter
+        keys -- then a `status` run to find out what on earth had happened
+        would rewrite all of them, and the original uids would survive only as
+        leftover frontmatter.  Writing nothing until a push leaves the
+        evidence intact, which is what lets `Syncer` refuse the whole thing.
+        """
+        if entry.recipe is None or entry.path is None:
+            raise PaprikaProgrammingError(
+                f"{entry.name} has no file to write a uid into."
+            )
+
+        recipe = replace(entry.recipe, uid=str(uuid.uuid4()).upper())
+        self.write_working(recipe, entry.path, entry.extras)
+
+        return replace(entry, uid=recipe.uid, recipe=recipe)
 
     # -- Change detection ---------------------------------------------------
 
@@ -418,10 +467,24 @@ class Repository:
         )
 
     def status(self) -> list[WorkingRecipe]:
-        paths = self.paths_by_uid()
+        paths, untracked = self.scan()
         base_uids = self.base_uids()
 
         result: list[WorkingRecipe] = []
+
+        for untracked_path in untracked:
+            recipe, extras = self.read_document(untracked_path)
+
+            result.append(
+                WorkingRecipe(
+                    uid="",
+                    status=Status.ADDED,
+                    path=untracked_path,
+                    recipe=recipe,
+                    base=None,
+                    extras=extras,
+                )
+            )
 
         for uid in sorted(set(paths) | base_uids):
             path = paths.get(uid)
@@ -484,7 +547,10 @@ def read_recipe(path: Path, recipe_class: type[T]) -> T:
 
 def unique_path(root: Path, recipe: BaseRecipe, taken: Container[Path]) -> Path:
     """Choose a file for a recipe, avoiding names already spoken for."""
-    stem = safe_filename(recipe.name) or recipe.uid
+    # A recipe with neither a name nor a uid has nothing to be called; that
+    # only happens for a file someone wrote and left blank, which is theirs
+    # to name rather than ours.
+    stem = safe_filename(recipe.name) or recipe.uid or "Untitled"
 
     candidate = root / f"{stem}{RECIPE_SUFFIX}"
     if candidate.resolve() not in taken and not candidate.exists():
@@ -492,7 +558,7 @@ def unique_path(root: Path, recipe: BaseRecipe, taken: Container[Path]) -> Path:
 
     # Two different recipes can share a name; fall back to disambiguating
     # with a slice of the uid, which is unique by construction.
-    suffix = recipe.uid.split("-")[0]
+    suffix = recipe.uid.split("-")[0] or uuid.uuid4().hex[:8]
 
     return root / f"{stem} ({suffix}){RECIPE_SUFFIX}"
 

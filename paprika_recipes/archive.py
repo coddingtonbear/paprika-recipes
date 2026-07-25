@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import uuid
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from collections.abc import Container, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Final
+from typing import IO, Final, TypeVar
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from .recipe import BaseRecipe
 from .types import UNKNOWN, RecipeManager
+
+T = TypeVar("T", bound=BaseRecipe)
 
 
 @dataclass
@@ -68,6 +71,20 @@ def attach_photo(recipe: ArchiveRecipe, path: Path) -> ArchiveRecipe:
         return recipe
 
     return replace(recipe, photo_data=b64encode(photo.read_bytes()).decode("ascii"))
+
+
+def identify(recipe: T) -> T:
+    """Give a recipe a uid of its own if it does not already have one.
+
+    A recipe file somebody wrote by hand has no uid until it is sent
+    somewhere -- and an archive is somewhere.  Paprika tracks what it imports
+    by uid, so packing a recipe without one leaves the app to invent one, or
+    to decide that several such recipes are all the same recipe.
+    """
+    if recipe.uid:
+        return recipe
+
+    return replace(recipe, uid=str(uuid.uuid4()).upper())
 
 
 def _entry_name(recipe: BaseRecipe, used: Container[str]) -> str:

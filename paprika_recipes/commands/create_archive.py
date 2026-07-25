@@ -3,7 +3,7 @@ from pathlib import Path
 
 from rich.progress import track
 
-from ..archive import Archive, ArchiveRecipe, attach_photo
+from ..archive import Archive, ArchiveRecipe, attach_photo, identify
 from ..command import BaseCommand
 from ..exceptions import PaprikaUserError
 from ..repository import read_recipe, recipe_files
@@ -35,7 +35,8 @@ class Command(BaseCommand):
             )
 
         for path in track(paths, description="Packing recipes"):
-            archive.add_recipe(attach_photo(read_recipe(path, ArchiveRecipe), path))
+            recipe = identify(read_recipe(path, ArchiveRecipe))
+            archive.add_recipe(attach_photo(recipe, path))
 
         with open(self.options.archive_path, "wb") as outf:
             archive.as_paprikarecipes(outf)

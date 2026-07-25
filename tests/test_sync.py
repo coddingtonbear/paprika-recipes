@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from paprika_recipes.commands.restore import matches
+from paprika_recipes.exceptions import PaprikaUserError
 from paprika_recipes.remote import RemoteRecipe
 from paprika_recipes.repository import Repository, Status
 from paprika_recipes.sync import Action, Syncer, restore
@@ -700,3 +701,125 @@ class TestMerging:
         Syncer(repository, account).pull(dry_run=True)
 
         assert self.working(repository).recipe.directions == "Mine."
+
+
+def write_untracked(repository: Repository, name: str, **frontmatter: str) -> None:
+    """Write a recipe file by hand, the way someone would in their vault."""
+    lines = [f"{key}: {value}" for key, value in frontmatter.items()]
+
+    (repository.root / f"{name}.md").write_text(
+        "---\n" + "\n".join(lines) + "\n---\n\n"
+        f"# {name}\n\n## Ingredients\n\n- 1 tsp salt\n",
+        encoding="utf-8",
+    )
+
+
+class TestPushingARecipeSomebodyWrote:
+    def test_creates_it_on_the_server(self, repository, account):
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine")
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Mine"] is Action.CREATED
+        assert len(account.recipes) == 3
+
+    def test_gives_it_a_uid_of_its_own(self, repository, account):
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine")
+
+        Syncer(repository, account).push()
+
+        assert "uid:" in (repository.root / "Mine.md").read_text(encoding="utf-8")
+
+    def test_creates_it_only_once(self, repository, account):
+        """The bug this whole arrangement exists to prevent.
+
+        With a uid invented at parse time rather than written to the file, the
+        recipe was uploaded, re-read under a *different* uid, written out as a
+        second file, and uploaded again on every push thereafter.
+        """
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine")
+
+        Syncer(repository, account).push()
+        report = Syncer(repository, account).push()
+
+        assert not report.changes
+        assert len(account.recipes) == 3
+        assert len(list(repository.working_paths())) == 3
+
+    def test_writes_nothing_during_a_dry_run(self, repository, account):
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine")
+        before = (repository.root / "Mine.md").read_text(encoding="utf-8")
+
+        report = Syncer(repository, account).push(dry_run=True)
+
+        assert actions(report)["Mine"] is Action.CREATED
+        assert (repository.root / "Mine.md").read_text(encoding="utf-8") == before
+        assert len(account.recipes) == 2
+
+
+class TestRefusingToActOnADirectoryItCannotRead:
+    def test_refuses_a_file_holding_a_uid_it_cannot_read(self, repository, account):
+        """What a mis-set `frontmatter_prefix` looks like from in here."""
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine", paprika_uid="SOME-UID")
+
+        with pytest.raises(PaprikaUserError, match="frontmatter_prefix"):
+            Syncer(repository, account).push()
+
+    @pytest.mark.parametrize("key", ["paprika_uid", "paprika-uid", "UID"])
+    def test_recognises_a_uid_however_it_was_spelled(self, repository, account, key):
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine", **{key: "SOME-UID"})
+
+        with pytest.raises(PaprikaUserError, match="frontmatter_prefix"):
+            Syncer(repository, account).push()
+
+    def test_allows_a_recipe_that_never_claimed_an_identity(self, repository, account):
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine", tags="dinner")
+
+        assert Syncer(repository, account).push().changes
+
+    def test_ignores_a_vaults_own_uuid_field(self, repository, account):
+        """`uuid:` is somebody else's field, not a mangling of ours."""
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine", uuid="1234")
+
+        assert Syncer(repository, account).push().changes
+
+    def test_refuses_when_every_recipe_lost_its_file(self, repository, account):
+        Syncer(repository, account).pull()
+
+        for path in list(repository.working_paths()):
+            path.unlink()
+
+        write_untracked(repository, "Mine")
+
+        with pytest.raises(PaprikaUserError, match="stopped being readable"):
+            Syncer(repository, account).push()
+
+    def test_still_allows_deleting_every_recipe(self, repository, account):
+        """The state the guard must not be confused by."""
+        Syncer(repository, account).pull()
+
+        for path in list(repository.working_paths()):
+            path.unlink()
+
+        report = Syncer(repository, account).push()
+
+        assert set(actions(report).values()) == {Action.TRASHED}
+
+    def test_allows_a_new_recipe_alongside_one_deletion(self, repository, account):
+        """One deleted and one written is an ordinary afternoon."""
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+        write_untracked(repository, "Mine")
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Mine"] is Action.CREATED
+        assert actions(report)["Recipe A"] is Action.TRASHED

@@ -408,3 +408,86 @@ class TestFileNaming:
         path = repository.write_working(make_recipe(name="///", uid="ABC-123"))
 
         assert path.name == "ABC-123.md"
+
+
+def write_by_hand(repository: Repository, name: str, extra: str = "") -> Path:
+    """Write a recipe file with no uid in it, the way a person would."""
+    path = repository.root / f"{name}.md"
+    path.write_text(
+        f"---\n{extra}\n---\n\n# {name}\n\n## Ingredients\n\n- 1 tsp salt\n",
+        encoding="utf-8",
+    )
+
+    return path
+
+
+class TestRecipesWithNoUid:
+    def test_reads_back_the_same_way_every_time(self, repository):
+        """A uid invented at parse time would differ on every read.
+
+        Which made "this file has no identity" indistinguishable from "this
+        file has one", and silently so.
+        """
+        write_by_hand(repository, "Mine")
+
+        first = repository.status()[0]
+        second = repository.status()[0]
+
+        assert first.uid == second.uid == ""
+
+    def test_are_listed_rather_than_ignored(self, repository):
+        write_by_hand(repository, "Mine")
+
+        entries = repository.status()
+
+        assert len(entries) == 1
+        assert entries[0].status is Status.ADDED
+        assert entries[0].untracked
+        assert entries[0].name == "Mine"
+
+    def test_are_kept_apart_from_the_tracked_ones(self, repository):
+        pull(repository, make_recipe(uid="A"))
+        write_by_hand(repository, "Mine")
+
+        tracked, untracked = repository.scan()
+
+        assert set(tracked) == {"A"}
+        assert [path.name for path in untracked] == ["Mine.md"]
+
+    def test_do_not_collide_with_each_other(self, repository):
+        write_by_hand(repository, "Mine")
+        write_by_hand(repository, "Yours")
+
+        assert len(repository.status()) == 2
+
+
+class TestAdopting:
+    def test_writes_a_uid_into_the_file(self, repository):
+        path = write_by_hand(repository, "Mine")
+
+        adopted = repository.adopt(repository.status()[0])
+
+        assert adopted.uid
+        assert adopted.uid in path.read_text(encoding="utf-8")
+
+    def test_makes_the_recipe_identifiable_from_then_on(self, repository):
+        write_by_hand(repository, "Mine")
+
+        adopted = repository.adopt(repository.status()[0])
+
+        assert repository.paths_by_uid() == {adopted.uid: repository.root / "Mine.md"}
+
+    def test_keeps_what_the_file_holds_of_its_own(self, repository):
+        path = write_by_hand(repository, "Mine", extra="tags:\n- dinner")
+
+        repository.adopt(repository.status()[0])
+
+        assert "dinner" in path.read_text(encoding="utf-8")
+
+    def test_leaves_an_already_tracked_recipe_alone(self, repository):
+        """Nothing calls it that way, but a uid must never be reassigned."""
+        pull(repository, make_recipe(uid="A"))
+        entry = repository.status()[0]
+
+        assert entry.uid == "A"
+        assert not entry.untracked

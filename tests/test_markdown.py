@@ -6,6 +6,7 @@ from paprika_recipes.markdown import (
     ExtraSection,
     documents_differ,
     find_lossy_fields,
+    foreign_uid_key,
     normalize_recipe,
     parse_recipe,
     read_extras,
@@ -419,3 +420,30 @@ class TestParsingErrors:
 
         assert result.uid == "abc"
         assert result.name == "Title"
+
+
+class TestReadingAUid:
+    def test_leaves_a_recipe_without_one_empty(self):
+        recipe = parse_recipe("---\ntags:\n- dinner\n---\n\n# Mine\n", BaseRecipe)
+
+        assert recipe.uid == ""
+
+    def test_reads_the_one_that_is_there(self):
+        recipe = parse_recipe("---\nuid: ABC\n---\n\n# Mine\n", BaseRecipe)
+
+        assert recipe.uid == "ABC"
+
+
+class TestSpottingAForeignUid:
+    @pytest.mark.parametrize(
+        "key", ["uid", "paprika_uid", "paprika-uid", "Paprika_UID"]
+    )
+    def test_recognises_a_uid_by_another_name(self, key):
+        assert foreign_uid_key(Extras(frontmatter={key: "ABC"})) == key
+
+    @pytest.mark.parametrize("key", ["uuid", "guid", "tags", "aliases", "id"])
+    def test_leaves_somebody_elses_field_alone(self, key):
+        assert foreign_uid_key(Extras(frontmatter={key: "ABC"})) == ""
+
+    def test_says_nothing_about_an_empty_file(self):
+        assert foreign_uid_key(Extras()) == ""
