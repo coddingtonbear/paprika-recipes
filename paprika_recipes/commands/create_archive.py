@@ -1,10 +1,12 @@
 import argparse
 from pathlib import Path
 
-from yaml import safe_load
+from rich.progress import track
 
-from ..archive import Archive, ArchiveRecipe
+from ..archive import Archive, ArchiveRecipe, attach_photo
 from ..command import BaseCommand
+from ..exceptions import PaprikaUserError
+from ..repository import read_recipe, recipe_files
 from ..types import ConfigDict
 
 
@@ -22,9 +24,18 @@ class Command(BaseCommand):
     def handle(self) -> None:
         archive = Archive()
 
-        for recipe_file in self.options.export_path.iterdir():
-            with open(recipe_file) as inf:
-                archive.add_recipe(ArchiveRecipe.from_dict(safe_load(inf)))
+        # Recipes may have been sorted into folders since they were extracted,
+        # and this may well be a directory that `clone` made, so the search is
+        # recursive and skips our own bookkeeping.
+        paths = list(recipe_files(self.options.export_path))
+
+        if not paths:
+            raise PaprikaUserError(
+                f"No recipe files were found in {self.options.export_path}."
+            )
+
+        for path in track(paths, description="Packing recipes"):
+            archive.add_recipe(attach_photo(read_recipe(path, ArchiveRecipe), path))
 
         with open(self.options.archive_path, "wb") as outf:
             archive.as_paprikarecipes(outf)

@@ -123,9 +123,15 @@ Notably, ingredient amounts are *not* parsed. Paprika stores ingredients as a si
 
 ## Working with exported archives
 
-If you would rather not give the app your account details, you can work with a `.paprikarecipes` export from the app instead. This route has no sync and no change detection; it just unpacks and repacks the archive.
+If you would rather not give this tool your account details at all, you can work with a `.paprikarecipes` export from the app instead. Export from Paprika, edit, import back:
 
 ```
-paprika-recipes extract-archive /path/to/export.paprikarecipes /path/to/extract/to/
-paprika-recipes create-archive /path/you/extracted/to/ /path/to/new-export.paprikarecipes
+paprika-recipes extract-archive export.paprikarecipes ./recipes/
+paprika-recipes create-archive ./recipes/ new-export.paprikarecipes
 ```
+
+You get the same markdown files `clone` writes, so everything above about the format applies. Recipe photos are written next to their recipe as ordinary image files (`Khachapuri.png` beside `Khachapuri.md`) and folded back in when you repack — an archive stores them inline as base64, which is fine for a zip file and hopeless for a file you intend to read.
+
+What this route does *not* have is any memory of where a recipe came from, so there is no `status`, no change detection and no conflict handling. It is a straight unpack and repack. If you want those, use `clone`.
+
+`create-archive` searches subdirectories, and skips a `.paprika` directory if it finds one — so you can also point it at a directory you cloned, and get an archive out of your account.

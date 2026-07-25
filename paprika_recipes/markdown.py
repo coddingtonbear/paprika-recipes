@@ -94,6 +94,19 @@ class Extras:
     def __bool__(self) -> bool:
         return bool(self.frontmatter or self.sections)
 
+    def describe(self) -> str:
+        """Name what is here, briefly enough to sit at the end of a line.
+
+        Whoever wrote this into their file should be told plainly that it is
+        staying put rather than going to Paprika -- silently keeping it is
+        only marginally better than silently dropping it, since either way
+        they are left guessing what happened to it.
+        """
+        headings = [section.text.split("\n", 1)[0] for section in self.sections]
+        keys = [f"{key}:" for key in sorted(self.frontmatter)]
+
+        return ", ".join([*headings, *keys])
+
 
 def render_recipe(recipe: BaseRecipe, extras: Extras | None = None) -> str:
     """Render a recipe as a markdown document with YAML frontmatter."""
@@ -139,29 +152,31 @@ def render_recipe(recipe: BaseRecipe, extras: Extras | None = None) -> str:
     return out.getvalue()
 
 
-def parse_recipe(content: str, recipe_class: type[T]) -> T:
-    """Read the recipe out of a document produced by `render_recipe`."""
+def parse_document(content: str, recipe_class: type[T]) -> tuple[T, Extras]:
+    """Read a document as both a recipe and whatever else its file holds."""
     frontmatter, body = _split_frontmatter(content)
-    fields, _ = _parse_body(body)
+    fields, sections = _parse_body(body)
+    known = {field.name for field in recipe_class.get_all_fields()}
 
     data: dict[str, Any] = dict(frontmatter)
     data.update(fields)
 
-    return recipe_class.from_dict(data)
-
-
-def read_extras(content: str, recipe_class: type[BaseRecipe]) -> Extras:
-    """Read the parts of a document that are not the recipe."""
-    frontmatter, body = _split_frontmatter(content)
-    known = {field.name for field in recipe_class.get_all_fields()}
-    _, sections = _parse_body(body)
-
-    return Extras(
+    return recipe_class.from_dict(data), Extras(
         frontmatter={
             key: value for key, value in frontmatter.items() if key not in known
         },
         sections=sections,
     )
+
+
+def parse_recipe(content: str, recipe_class: type[T]) -> T:
+    """Read the recipe out of a document produced by `render_recipe`."""
+    return parse_document(content, recipe_class)[0]
+
+
+def read_extras(content: str, recipe_class: type[BaseRecipe]) -> Extras:
+    """Read the parts of a document that are not the recipe."""
+    return parse_document(content, recipe_class)[1]
 
 
 def documents_differ(content: str, rendered: str) -> bool:

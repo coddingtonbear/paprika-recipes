@@ -328,7 +328,14 @@ class Syncer:
             self._notify(name)
             self._remote.upload_recipe(entry.recipe)
 
-        report.record(action, entry.uid, name)
+        # Uploading is the moment to say what is not being uploaded: the rest
+        # of the file stays behind, and someone who wrote it there deserves to
+        # be told rather than left to discover it.
+        kept = entry.extras.describe()
+
+        report.record(
+            action, entry.uid, name, f"{kept} stayed in your file" if kept else ""
+        )
 
         return not dry_run
 

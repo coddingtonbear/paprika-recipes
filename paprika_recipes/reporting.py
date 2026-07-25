@@ -156,14 +156,41 @@ def print_status(console: Console, entries: list[WorkingRecipe]) -> None:
             f"match the last pull.[/{QUIET}]"
         )
 
+    print_unsyncable(console, entries)
+
+
+def print_unsyncable(console: Console, entries: list[WorkingRecipe]) -> None:
+    """Say how much of the directory Paprika has nowhere to put.
+
+    Only a count, and only once: a vault where every recipe carries a `tags:`
+    would otherwise produce a wall of text on every run.  What each individual
+    file is holding is said at the moment it matters -- beside the recipe in a
+    listing that already names it, and again as it is pushed.
+    """
+    holding = [entry for entry in entries if entry.extras]
+
+    if not holding:
+        return
+
+    console.print(
+        f"\n[{QUIET}]{len(holding)} {_recipes(len(holding))} contain content of "
+        f"your own that Paprika cannot store; it stays in your files and is "
+        f"never uploaded.[/{QUIET}]"
+    )
+
 
 def _status_detail(entry: WorkingRecipe) -> str:
-    if entry.status is not Status.MODIFIED:
-        return PUSH_INTENT.get(entry.status, "")
+    if entry.status is Status.MODIFIED:
+        fields = entry.changed_fields()
+        detail = ", ".join(fields) if fields else "formatting only; nothing to push"
+    else:
+        detail = PUSH_INTENT.get(entry.status, "")
 
-    fields = entry.changed_fields()
+    if entry.extras:
+        kept = f"keeping {entry.extras.describe()}"
+        detail = f"{detail}; {kept}" if detail else kept
 
-    return ", ".join(fields) if fields else "formatting only; nothing to push"
+    return detail
 
 
 def _recipes(count: int) -> str:

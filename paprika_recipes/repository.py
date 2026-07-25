@@ -34,11 +34,11 @@ whether the *server's* copy has moved.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Container, Iterator
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TypeVar
 
 from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaUserError
@@ -47,12 +47,16 @@ from .markdown import (
     documents_differ,
     find_lossy_fields,
     normalize_recipe,
+    parse_document,
     parse_recipe,
     read_extras,
     render_recipe,
 )
+from .recipe import BaseRecipe
 from .remote import RemoteRecipe
 from .utils import dump_yaml, load_yaml
+
+T = TypeVar("T", bound=BaseRecipe)
 
 REPOSITORY_DIRNAME: Final = ".paprika"
 BASE_DIRNAME: Final = "recipes"
@@ -81,6 +85,8 @@ class WorkingRecipe:
     path: Path | None
     recipe: RemoteRecipe | None
     base: RemoteRecipe | None
+    #: What the file holds that Paprika has nowhere to put.
+    extras: Extras = field(default_factory=Extras)
 
     @property
     def name(self) -> str:
@@ -248,18 +254,18 @@ class Repository:
     # -- The working directory ----------------------------------------------
 
     def working_paths(self) -> Iterator[Path]:
-        for path in sorted(self._root.rglob(f"*{RECIPE_SUFFIX}")):
-            if self.repository_dir in path.parents:
-                continue
-
-            yield path
+        yield from recipe_files(self._root)
 
     def read_working(self, path: Path) -> RemoteRecipe:
+        return read_recipe(path, RemoteRecipe)
+
+    def read_document(self, path: Path) -> tuple[RemoteRecipe, Extras]:
+        """Read a working file as both a recipe and everything else it holds."""
         with open(path, encoding="utf-8") as inf:
             content = inf.read()
 
         try:
-            return parse_recipe(content, RemoteRecipe)
+            return parse_document(content, RemoteRecipe)
         except PaprikaUserError as e:
             raise PaprikaUserError(f"{path}: {e}")
 
@@ -347,18 +353,9 @@ class Repository:
         if recipe.uid in existing:
             return existing[recipe.uid]
 
-        taken = {path.resolve() for path in existing.values()}
-        stem = safe_filename(recipe.name) or recipe.uid
-
-        candidate = self._root / f"{stem}{RECIPE_SUFFIX}"
-        if candidate.resolve() not in taken and not candidate.exists():
-            return candidate
-
-        # Two different recipes can share a name; fall back to disambiguating
-        # with a slice of the uid, which is unique by construction.
-        suffix = recipe.uid.split("-")[0]
-
-        return self._root / f"{stem} ({suffix}){RECIPE_SUFFIX}"
+        return unique_path(
+            self._root, recipe, {path.resolve() for path in existing.values()}
+        )
 
     def paths_by_uid(self) -> dict[str, Path]:
         """Map each recipe's uid to the file holding it.
@@ -429,7 +426,7 @@ class Repository:
                 )
                 continue
 
-            recipe = self.read_working(path)
+            recipe, extras = self.read_document(path)
 
             if uid not in base_uids:
                 status = Status.ADDED
@@ -445,10 +442,46 @@ class Repository:
                     path=path,
                     recipe=recipe,
                     base=base,
+                    extras=extras,
                 )
             )
 
         return result
+
+
+def recipe_files(root: Path) -> Iterator[Path]:
+    """Every recipe file under `root`, ignoring our own bookkeeping."""
+    for path in sorted(root.rglob(f"*{RECIPE_SUFFIX}")):
+        if REPOSITORY_DIRNAME in path.parts:
+            continue
+
+        yield path
+
+
+def read_recipe(path: Path, recipe_class: type[T]) -> T:
+    """Read a recipe from a file, blaming the file if it cannot be read."""
+    with open(path, encoding="utf-8") as inf:
+        content = inf.read()
+
+    try:
+        return parse_recipe(content, recipe_class)
+    except PaprikaUserError as e:
+        raise PaprikaUserError(f"{path}: {e}")
+
+
+def unique_path(root: Path, recipe: BaseRecipe, taken: Container[Path]) -> Path:
+    """Choose a file for a recipe, avoiding names already spoken for."""
+    stem = safe_filename(recipe.name) or recipe.uid
+
+    candidate = root / f"{stem}{RECIPE_SUFFIX}"
+    if candidate.resolve() not in taken and not candidate.exists():
+        return candidate
+
+    # Two different recipes can share a name; fall back to disambiguating
+    # with a slice of the uid, which is unique by construction.
+    suffix = recipe.uid.split("-")[0]
+
+    return root / f"{stem} ({suffix}){RECIPE_SUFFIX}"
 
 
 def safe_filename(name: str) -> str:
