@@ -117,7 +117,3 @@ If you would rather not give the app your account details, you can work with a `
 paprika-recipes extract-archive /path/to/export.paprikarecipes /path/to/extract/to/
 paprika-recipes create-archive /path/you/extracted/to/ /path/to/new-export.paprikarecipes
 ```
-
-## Other commands
-
-`download-recipes` and `upload-recipes` predate the sync commands and copy your account to and from a directory of YAML files with no change tracking at all. `clone`/`pull`/`push` supersede them for almost every purpose.
