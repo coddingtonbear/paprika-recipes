@@ -314,6 +314,23 @@ class Repository:
 
         return path
 
+    def restore(self, uid: str) -> Path:
+        """Put a recipe's working file back the way it last arrived.
+
+        This is the undo for local edits, including deleting the file: the
+        base copy is a complete recipe, so there is always something to
+        restore to as long as the recipe has been pulled at least once.
+        """
+        base = self.read_base(uid)
+
+        if base is None:
+            raise PaprikaUserError(
+                f"There is no record of having pulled the recipe {uid}, "
+                "so there is nothing to restore it to."
+            )
+
+        return self.store(base)
+
     def path_for(
         self, recipe: RemoteRecipe, existing: dict[str, Path] | None = None
     ) -> Path:

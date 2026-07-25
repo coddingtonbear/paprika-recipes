@@ -1,17 +1,14 @@
 import os
-import subprocess
-import tempfile
 from collections import OrderedDict
 from pathlib import Path
-from textwrap import dedent
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import keyring
 import yaml
 from appdirs import user_config_dir
 
 from .constants import APP_NAME
-from .exceptions import AuthenticationError, PaprikaUserError
+from .exceptions import AuthenticationError
 from .types import ConfigDict
 
 if TYPE_CHECKING:
@@ -93,39 +90,6 @@ def get_password_for_email(email: str) -> str:
         )
 
     return password
-
-
-T = TypeVar("T", bound="BaseRecipe")
-
-
-def edit_recipe_interactively(recipe: T, editor: str = "vim") -> T:
-    handle, filename = tempfile.mkstemp(suffix=".paprikarecipe.yaml")
-    path = Path(filename)
-
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as outf:
-            outf.write(dedent("""\
-                    # Please modify your recipe below, then save and exit.
-                    # To cancel, delete all content from this file.
-                """))
-
-            dump_recipe_yaml(recipe, outf)
-
-        proc = subprocess.Popen([editor, str(path)])
-        proc.wait()
-
-        # Editors commonly save by writing a new file and renaming it into
-        # place, which leaves our original descriptor pointing at the
-        # now-replaced file; read the edited contents back by name instead.
-        with open(path, encoding="utf-8") as inf:
-            contents = inf.read()
-
-        if not contents.strip():
-            raise PaprikaUserError("Empty recipe found; aborting")
-
-        return recipe.__class__.from_dict(yaml.safe_load(contents))
-    finally:
-        path.unlink(missing_ok=True)
 
 
 def get_config_dir() -> Path:

@@ -23,16 +23,19 @@ directions would be worse than being told to sort it out yourself.  So we
 refuse and explain, and leave the fix to the person who knows which version
 they meant.
 
-Deletion is deliberately asymmetric.  A recipe that vanishes from the server is
-removed from the working directory, but a file you delete locally is never
-propagated: destroying a recipe in someone's Paprika account is not something
-to infer from an absent file.
+Deletion travels in both directions, but never destructively.  A recipe that
+vanishes from the server is removed from the working directory; a file deleted
+locally is pushed as a move into Paprika's trash.  Paprika's sync API has no
+delete verb at all -- only an `in_trash` flag -- which happens to be exactly
+the semantics worth wanting: the recipe is recoverable from the app's own
+trash, and locally it can be brought back with `restore`, since the base copy
+is a complete recipe and is not discarded until the trashing succeeds.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Protocol
 
@@ -65,6 +68,10 @@ class Action(Enum):
     CREATED = "created"
     #: Uploaded to the server, replacing the copy it had.
     UPLOADED = "uploaded"
+    #: Moved into Paprika's trash, because its file was deleted locally.
+    TRASHED = "trashed"
+    #: Put back the way it last arrived from the server.
+    RESTORED = "restored"
     #: Changed on both sides; left alone for the user to resolve.
     CONFLICT = "conflict"
     #: Nothing to do, for a reason worth mentioning.
@@ -100,6 +107,38 @@ class SyncReport:
     def __bool__(self) -> bool:
         """Whether anything happened at all."""
         return bool(self.changes)
+
+
+def restore(repository: Repository, entries: Iterable[WorkingRecipe]) -> SyncReport:
+    """Put the given recipes back the way they last arrived from the server.
+
+    This needs no network at all: the base copies are the only thing being
+    read.  It is the undo for anything `status` reports -- an edit, or the
+    deletion of a file -- but pointedly not for a recipe that was never
+    pulled, since there is nothing to put such a file back to and deleting
+    someone's new work is not an undo.
+    """
+    report = SyncReport()
+
+    for entry in entries:
+        if entry.status is Status.UNCHANGED:
+            report.unchanged += 1
+            continue
+
+        if entry.base is None:
+            report.record(
+                Action.SKIPPED,
+                entry.uid,
+                entry.name,
+                "was never pulled from Paprika, so there is nothing to "
+                "restore it to; delete the file yourself if you meant to",
+            )
+            continue
+
+        repository.restore(entry.uid)
+        report.record(Action.RESTORED, entry.uid, entry.name)
+
+    return report
 
 
 class Syncer:
@@ -165,7 +204,8 @@ class Syncer:
                     Action.CONFLICT,
                     uid,
                     recipe.name,
-                    "was deleted locally, but has changed on the server",
+                    "was deleted locally, but has changed on the server; "
+                    "push to trash it anyway, or `restore` to keep it",
                 )
             elif entry.has_local_changes():
                 report.record(
@@ -219,17 +259,22 @@ class Syncer:
         report = SyncReport()
 
         index = self._remote.get_recipe_index()
-        pushed: list[str] = []
+        uploaded: list[str] = []
 
         for entry in self._repository.status():
             if self._push_one(report, entry, index, dry_run):
-                pushed.append(entry.uid)
+                uploaded.append(entry.uid)
 
-        if pushed and not dry_run:
-            # Ask Paprika to tell its apps that something changed, then take
-            # the server's word for what each recipe now says.
+        if dry_run:
+            return report
+
+        if report.of(Action.CREATED, Action.UPLOADED, Action.TRASHED):
+            # Ask Paprika to tell its apps that something changed.
             self._remote.notify()
-            self._refresh(pushed)
+
+        if uploaded:
+            # Then take the server's word for what each recipe now says.
+            self._refresh(uploaded)
 
         return report
 
@@ -246,15 +291,7 @@ class Syncer:
             return False
 
         if entry.status is Status.DELETED or entry.recipe is None:
-            name = entry.base.name if entry.base is not None else entry.uid
-            report.record(
-                Action.SKIPPED,
-                entry.uid,
-                name,
-                "was deleted locally; delete it in Paprika itself to remove it "
-                "from the server",
-            )
-            return False
+            return self._push_removal(report, entry, index, dry_run)
 
         name = entry.recipe.name
 
@@ -294,6 +331,50 @@ class Syncer:
         report.record(action, entry.uid, name)
 
         return not dry_run
+
+    def _push_removal(
+        self,
+        report: SyncReport,
+        entry: WorkingRecipe,
+        index: dict[str, str],
+        dry_run: bool,
+    ) -> bool:
+        """Move a recipe whose file was deleted into Paprika's trash.
+
+        The base copy is kept until the trashing has actually happened, so
+        that a failure here leaves the recipe restorable rather than merely
+        gone from both places.
+        """
+        name = entry.name
+
+        if entry.base is None or entry.uid not in index:
+            if not dry_run:
+                self._repository.delete_base(entry.uid)
+
+            report.record(
+                Action.REMOVED, entry.uid, name, "was already gone from the server"
+            )
+            return False
+
+        if index[entry.uid] != entry.base.hash:
+            report.record(
+                Action.CONFLICT,
+                entry.uid,
+                name,
+                "was deleted locally, but has since changed on the server; "
+                "pull to see what changed, or `restore` to keep it",
+            )
+            return False
+
+        if not dry_run:
+            self._notify(name)
+            self._remote.upload_recipe(replace(entry.base, in_trash=True))
+            self._repository.delete_base(entry.uid)
+
+        report.record(Action.TRASHED, entry.uid, name)
+
+        # Nothing to re-fetch: refreshing would write the file back out.
+        return False
 
     def _refresh(self, uids: Iterable[str]) -> None:
         """Re-pull recipes we just uploaded, so their base copies are the server's.

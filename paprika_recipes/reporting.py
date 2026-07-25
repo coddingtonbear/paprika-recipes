@@ -12,28 +12,52 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from .repository import Status, WorkingRecipe
 from .sync import Action, SyncReport
 
+#: Colour says what *kind* of thing happened, consistently across every
+#: listing: green for something appearing, red for something going away,
+#: yellow for something changing in place. Conflicts get magenta rather than
+#: yellow -- they are the one outcome that needs the reader to do something,
+#: so they should not blend in with the ordinary business of a recipe having
+#: changed.
+GONE: Final = "red"
+NEW: Final = "green"
+CHANGED: Final = "yellow"
+NEEDS_ATTENTION: Final = "magenta"
+QUIET: Final = "bright_black"
+
 #: How each outcome is labelled and coloured.  The labels are padded to a
 #: common width so that a report reads as a column rather than a ragged list.
 ACTION_STYLES: Final[dict[Action, tuple[str, str]]] = {
-    Action.ADDED: ("added", "green"),
-    Action.UPDATED: ("updated", "cyan"),
-    Action.REMOVED: ("removed", "red"),
-    Action.CREATED: ("created", "green"),
-    Action.UPLOADED: ("uploaded", "cyan"),
-    Action.CONFLICT: ("conflict", "yellow"),
-    Action.SKIPPED: ("skipped", "bright_black"),
+    Action.ADDED: ("added", NEW),
+    Action.CREATED: ("created", NEW),
+    Action.RESTORED: ("restored", NEW),
+    Action.UPDATED: ("updated", CHANGED),
+    Action.UPLOADED: ("uploaded", CHANGED),
+    Action.REMOVED: ("removed", GONE),
+    Action.TRASHED: ("trashed", GONE),
+    Action.CONFLICT: ("conflict", NEEDS_ATTENTION),
+    Action.SKIPPED: ("skipped", QUIET),
 }
 
+#: Borrowed from `git status` verbatim, because a person who has used git
+#: already knows what these three words mean and does not need us to invent
+#: synonyms for them.
 STATUS_STYLES: Final[dict[Status, tuple[str, str]]] = {
-    Status.MODIFIED: ("modified", "cyan"),
-    Status.ADDED: ("untracked", "green"),
-    Status.DELETED: ("deleted", "red"),
-    Status.UNCHANGED: ("unchanged", "bright_black"),
+    Status.ADDED: ("new file:", NEW),
+    Status.MODIFIED: ("modified:", CHANGED),
+    Status.DELETED: ("deleted:", GONE),
+    Status.UNCHANGED: ("unchanged:", QUIET),
 }
 
-LABEL_WIDTH: Final = max(
-    len(label) for label, _ in [*ACTION_STYLES.values(), *STATUS_STYLES.values()]
-)
+#: What `push` would do with a recipe in each state, said plainly.  A status
+#: listing that only names the state leaves the reader to guess at the
+#: consequence, and the consequence of a deletion is worth being sure about.
+PUSH_INTENT: Final[dict[Status, str]] = {
+    Status.ADDED: "will be created in Paprika",
+    Status.DELETED: "will be moved to Paprika's trash",
+}
+
+ACTION_WIDTH: Final = max(len(label) for label, _ in ACTION_STYLES.values())
+STATUS_WIDTH: Final = max(len(label) for label, _ in STATUS_STYLES.values())
 
 
 @contextmanager
@@ -63,64 +87,83 @@ def recipe_progress(
 
 def print_report(console: Console, report: SyncReport, dry_run: bool = False) -> None:
     """Print what a sync did, followed by a one-line summary."""
-    for change in report.changes:
+    # Grouped by outcome rather than left in the order things happened, the
+    # same way `git status` groups its listing: a report is read to find out
+    # what became of everything, not to replay the sequence.
+    order = list(ACTION_STYLES)
+
+    for change in sorted(
+        report.changes, key=lambda change: (order.index(change.action), change.name)
+    ):
         label, color = ACTION_STYLES[change.action]
-        detail = (
-            f" [bright_black]-- {change.detail}[/bright_black]" if change.detail else ""
-        )
+        detail = f" [{QUIET}]-- {change.detail}[/{QUIET}]" if change.detail else ""
 
         console.print(
-            f"[{color}]{label:>{LABEL_WIDTH}}[/{color}]  {change.name}{detail}"
+            f"[{color}]{label:>{ACTION_WIDTH}}[/{color}]  {change.name}{detail}"
         )
 
     if not report.changes:
         console.print(
-            f"[bright_black]Nothing to do; {report.unchanged} "
-            f"{_recipes(report.unchanged)} already in sync.[/bright_black]"
+            f"[{QUIET}]Nothing to do; {report.unchanged} "
+            f"{_recipes(report.unchanged)} already in sync.[/{QUIET}]"
         )
         return
 
     if dry_run:
-        console.print("\n[bright_black]Nothing was changed (--dry-run).[/bright_black]")
+        console.print(f"\n[{QUIET}]Nothing was changed (--dry-run).[/{QUIET}]")
 
     conflicts = report.conflicts
     if conflicts:
         console.print(
-            f"\n[yellow]{len(conflicts)} {_recipes(len(conflicts))} could not be "
-            "synced automatically; resolve them and try again.[/yellow]"
+            f"\n[{NEEDS_ATTENTION}]{len(conflicts)} {_recipes(len(conflicts))} "
+            f"could not be synced automatically; resolve them and try "
+            f"again.[/{NEEDS_ATTENTION}]"
         )
 
 
 def print_status(console: Console, entries: list[WorkingRecipe]) -> None:
-    """Print the state of a working directory, ignoring what is in sync."""
+    """Print the state of a working directory, in the shape of `git status`."""
     interesting = [entry for entry in entries if entry.status is not Status.UNCHANGED]
-
-    for entry in sorted(interesting, key=lambda entry: entry.name):
-        label, color = STATUS_STYLES[entry.status]
-
-        detail = ""
-        if entry.status is Status.MODIFIED:
-            fields = entry.changed_fields()
-            detail = ", ".join(fields) if fields else "formatting only; nothing to push"
-
-        detail = f" [bright_black]-- {detail}[/bright_black]" if detail else ""
-
-        console.print(
-            f"[{color}]{label:>{LABEL_WIDTH}}[/{color}]  {entry.name}{detail}"
-        )
-
     unchanged = len(entries) - len(interesting)
 
     if not interesting:
         console.print(
-            f"[bright_black]Nothing to sync; all {unchanged} "
-            f"{_recipes(unchanged)} match the last pull.[/bright_black]"
+            f"[{QUIET}]Nothing to sync; all {unchanged} "
+            f"{_recipes(unchanged)} match the last pull.[/{QUIET}]"
         )
-    elif unchanged:
+        return
+
+    console.print("Changes not yet sent to Paprika:")
+    console.print(f'[{QUIET}]  (use "paprika-recipes push" to send them)[/{QUIET}]')
+    console.print(
+        f'[{QUIET}]  (use "paprika-recipes restore <recipe>..." to discard '
+        f"them)[/{QUIET}]"
+    )
+    console.print()
+
+    for entry in sorted(interesting, key=lambda entry: entry.name):
+        label, color = STATUS_STYLES[entry.status]
+        detail = _status_detail(entry)
+
         console.print(
-            f"\n[bright_black]{unchanged} other {_recipes(unchanged)} "
-            "match the last pull.[/bright_black]"
+            f"        [{color}]{label:<{STATUS_WIDTH}} {entry.name}[/{color}]"
+            + (f" [{QUIET}]({detail})[/{QUIET}]" if detail else "")
         )
+
+    if unchanged:
+        console.print(
+            f"\n[{QUIET}]{unchanged} other {_recipes(unchanged)} "
+            f"match the last pull.[/{QUIET}]"
+        )
+
+
+def _status_detail(entry: WorkingRecipe) -> str:
+    if entry.status is not Status.MODIFIED:
+        return PUSH_INTENT.get(entry.status, "")
+
+    fields = entry.changed_fields()
+
+    return ", ".join(fields) if fields else "formatting only; nothing to push"
 
 
 def _recipes(count: int) -> str:

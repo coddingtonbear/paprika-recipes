@@ -3,9 +3,10 @@ from typing import Any
 
 import pytest
 
+from paprika_recipes.commands.restore import matches
 from paprika_recipes.remote import RemoteRecipe
 from paprika_recipes.repository import Repository, Status
-from paprika_recipes.sync import Action, Syncer
+from paprika_recipes.sync import Action, Syncer, restore
 
 
 class FakeAccount:
@@ -326,16 +327,6 @@ class TestPushing:
         assert "changed on the server" in conflict.detail
         assert account.recipes["A"]["ingredients"] == "1 tsp salt"
 
-    def test_never_deletes_a_recipe_from_the_server(self, repository, account):
-        Syncer(repository, account).pull()
-        repository.paths_by_uid()["A"].unlink()
-
-        report = Syncer(repository, account).push()
-
-        (skipped,) = report.of(Action.SKIPPED)
-        assert "delete it in Paprika itself" in skipped.detail
-        assert "A" in account.recipes
-
     def test_does_not_send_a_recipe_whose_file_only_looks_different(
         self, repository, account
     ):
@@ -371,6 +362,171 @@ class TestPushing:
         assert account.notified == 0
 
 
+class TestPushingDeletions:
+    """Deleting a file moves the recipe into Paprika's trash, not oblivion."""
+
+    def test_trashes_a_recipe_whose_file_was_deleted(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Recipe A"] is Action.TRASHED
+        assert account.recipes["A"]["in_trash"] is True
+
+    def test_keeps_everything_else_about_the_recipe(self, repository, account):
+        """Trashing is a flag, so the recipe is still there to be recovered."""
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        Syncer(repository, account).push()
+
+        assert account.recipes["A"]["ingredients"] == "1 tsp salt"
+
+    def test_stops_tracking_the_trashed_recipe(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        Syncer(repository, account).push()
+
+        assert repository.base_uids() == {"B"}
+
+    def test_does_not_write_the_file_back_out(self, repository, account):
+        """The push refresh must not resurrect what was just deleted."""
+        Syncer(repository, account).pull()
+        path = repository.paths_by_uid()["A"]
+        path.unlink()
+
+        Syncer(repository, account).push()
+
+        assert not path.exists()
+
+    def test_leaves_the_directory_quiet_afterwards(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+        Syncer(repository, account).push()
+
+        report = Syncer(repository, account).pull()
+
+        assert not report.changes
+
+    def test_tells_paprika_to_notify_its_apps(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        Syncer(repository, account).push()
+
+        assert account.notified == 1
+
+    def test_refuses_when_the_server_has_changed_it_since(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+        account.edit("A", notes="Changed elsewhere.")
+
+        report = Syncer(repository, account).push()
+
+        (conflict,) = report.conflicts
+        assert "since changed on the server" in conflict.detail
+        assert account.recipes["A"]["in_trash"] is False
+        # Still restorable, because the base copy was not thrown away.
+        assert repository.read_base("A") is not None
+
+    def test_just_forgets_a_recipe_the_server_no_longer_has(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+        account.remove("A")
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Recipe A"] is Action.REMOVED
+        assert repository.base_uids() == {"B"}
+
+    def test_trashes_nothing_on_a_dry_run(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        report = Syncer(repository, account).push(dry_run=True)
+
+        assert actions(report)["Recipe A"] is Action.TRASHED
+        assert account.recipes["A"]["in_trash"] is False
+        assert repository.read_base("A") is not None
+
+
+class TestRestoring:
+    def test_undoes_an_edit(self, repository, account):
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+
+        report = restore(repository, repository.status())
+
+        assert actions(report)["Recipe A"] is Action.RESTORED
+        assert "1 tsp salt" in repository.paths_by_uid()["A"].read_text()
+
+    def test_brings_back_a_deleted_file(self, repository, account):
+        Syncer(repository, account).pull()
+        path = repository.paths_by_uid()["A"]
+        path.unlink()
+
+        report = restore(repository, repository.status())
+
+        assert actions(report)["Recipe A"] is Action.RESTORED
+        assert path.exists()
+
+    def test_leaves_the_recipe_reading_as_unchanged(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        restore(repository, repository.status())
+
+        assert all(entry.status is Status.UNCHANGED for entry in repository.status())
+
+    def test_means_a_later_push_has_nothing_to_say(self, repository, account):
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+        restore(repository, repository.status())
+
+        report = Syncer(repository, account).push()
+
+        assert not report.changes
+        assert account.recipes["A"]["in_trash"] is False
+
+    def test_refuses_to_delete_a_recipe_that_was_never_pulled(
+        self, repository, account
+    ):
+        Syncer(repository, account).pull()
+        path = repository.write_working(make_recipe("C", name="Brand New"))
+
+        report = restore(repository, repository.status())
+
+        (skipped,) = report.of(Action.SKIPPED)
+        assert "never pulled" in skipped.detail
+        assert path.exists()
+
+    def test_keeps_a_users_own_frontmatter(self, repository, account):
+        Syncer(repository, account).pull()
+        path = repository.paths_by_uid()["A"]
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            .replace("---\n", "---\ntags:\n- dinner\n", 1)
+            .replace("1 tsp salt", "2 tsp salt"),
+            encoding="utf-8",
+        )
+
+        restore(repository, repository.status())
+
+        assert "tags:" in path.read_text(encoding="utf-8")
+        assert "1 tsp salt" in path.read_text(encoding="utf-8")
+
+    def test_leaves_untouched_recipes_alone(self, repository, account):
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+
+        report = restore(repository, repository.status())
+
+        assert len(report.changes) == 1
+        assert report.unchanged == 1
+
+
 class TestProgressReporting:
     def test_names_each_recipe_it_touches(self, repository, account):
         seen: list[str] = []
@@ -378,3 +534,41 @@ class TestProgressReporting:
         Syncer(repository, account, seen.append).pull()
 
         assert sorted(seen) == ["Recipe A", "Recipe B"]
+
+
+class TestRestoreTargets:
+    """Naming a recipe on the command line."""
+
+    @pytest.fixture
+    def entry(self, repository, account):
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+
+        (entry,) = (e for e in repository.status() if e.uid == "A")
+
+        return entry
+
+    def test_matches_a_title(self, entry):
+        assert matches(entry, "Recipe A")
+
+    def test_matches_a_title_regardless_of_case(self, entry):
+        assert matches(entry, "recipe a")
+
+    def test_matches_a_uid(self, entry):
+        assert matches(entry, "A")
+
+    def test_matches_a_path(self, entry):
+        assert matches(entry, str(entry.path))
+
+    def test_does_not_match_something_else(self, entry):
+        assert not matches(entry, "Recipe B")
+
+    def test_matches_a_deleted_recipe_by_title(self, repository, account):
+        """The case that matters most: there is no file left to name."""
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        (entry,) = (e for e in repository.status() if e.uid == "A")
+
+        assert entry.path is None
+        assert matches(entry, "Recipe A")
