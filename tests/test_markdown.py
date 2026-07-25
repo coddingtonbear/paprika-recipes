@@ -2,11 +2,13 @@ import pytest
 
 from paprika_recipes.exceptions import PaprikaUserError
 from paprika_recipes.markdown import (
+    Extras,
+    ExtraSection,
     documents_differ,
-    extra_frontmatter,
     find_lossy_fields,
     normalize_recipe,
     parse_recipe,
+    read_extras,
     render_recipe,
 )
 from paprika_recipes.recipe import BaseRecipe
@@ -162,10 +164,11 @@ class TestHeadingCollisions:
 
         assert "\\## Notes" in render_recipe(recipe)
 
-    def test_leaves_headings_that_are_not_ours_alone(self):
+    def test_escapes_every_heading_in_prose_not_just_our_own(self):
+        """An unescaped `## ` must always mean a section boundary."""
         recipe = BaseRecipe(name="Test", directions="## Step One\n\nDo it.")
 
-        assert "\\##" not in render_recipe(recipe)
+        assert "\\## Step One" in render_recipe(recipe)
         assert roundtrip(recipe).directions == "## Step One\n\nDo it."
 
 
@@ -230,30 +233,121 @@ class TestExtraFrontmatter:
             "---\n", "---\ntags: [dinner]\n", 1
         )
 
-        assert extra_frontmatter(content, BaseRecipe) == {"tags": ["dinner"]}
+        assert read_extras(content, BaseRecipe).frontmatter == {"tags": ["dinner"]}
 
     def test_reports_nothing_for_a_file_we_wrote_ourselves(self):
         content = render_recipe(BaseRecipe(name="Test", rating=4))
 
-        assert extra_frontmatter(content, BaseRecipe) == {}
+        assert not read_extras(content, BaseRecipe)
 
     def test_renders_extra_keys_back_into_the_frontmatter(self):
-        rendered = render_recipe(BaseRecipe(name="Test"), {"tags": ["dinner"]})
+        extras = Extras(frontmatter={"tags": ["dinner"]})
+
+        rendered = render_recipe(BaseRecipe(name="Test"), extras)
 
         assert "tags:" in rendered.split("---")[1]
-        assert extra_frontmatter(rendered, BaseRecipe) == {"tags": ["dinner"]}
+        assert read_extras(rendered, BaseRecipe) == extras
 
     def test_ignores_extra_keys_when_parsing_the_recipe(self):
         recipe = BaseRecipe(name="Test", rating=4)
 
-        rendered = render_recipe(recipe, {"tags": ["dinner"]})
+        rendered = render_recipe(recipe, Extras(frontmatter={"tags": ["dinner"]}))
 
         assert parse_recipe(rendered, BaseRecipe) == recipe
 
     def test_never_lets_extra_keys_shadow_a_recipe_field(self):
-        rendered = render_recipe(BaseRecipe(name="Test", rating=4), {"rating": 1})
+        rendered = render_recipe(
+            BaseRecipe(name="Test", rating=4), Extras(frontmatter={"rating": 1})
+        )
 
         assert parse_recipe(rendered, BaseRecipe).rating == 4
+
+
+class TestExtraSections:
+    """A `## ` section the user added that means nothing to Paprika."""
+
+    def content(self, *, before_directions: bool = True) -> str:
+        own = "## My Own Notes\n\nI keep my own stuff here.\n\n"
+        directions = "## Directions\n\nBake it.\n"
+
+        return (
+            "---\nuid: ABC\n---\n\n# Khachapuri\n\n"
+            "## Ingredients\n\n- 1 tsp salt\n\n"
+            + (own + directions if before_directions else directions + "\n" + own)
+        )
+
+    def test_is_not_swallowed_into_the_preceding_recipe_field(self):
+        """The whole point: this used to end up inside `ingredients`."""
+        recipe = parse_recipe(self.content(), BaseRecipe)
+
+        assert recipe.ingredients == "1 tsp salt"
+        assert recipe.directions == "Bake it."
+        assert "My Own Notes" not in str(recipe.as_dict())
+
+    def test_is_reported_as_the_users_own(self):
+        extras = read_extras(self.content(), BaseRecipe)
+
+        assert extras.sections == (
+            ExtraSection("ingredients", "## My Own Notes\n\nI keep my own stuff here."),
+        )
+
+    def test_is_written_back_where_its_author_left_it(self):
+        content = self.content()
+        recipe = parse_recipe(content, BaseRecipe)
+
+        rendered = render_recipe(recipe, read_extras(content, BaseRecipe))
+
+        assert rendered.index("## My Own Notes") > rendered.index("## Ingredients")
+        assert rendered.index("## My Own Notes") < rendered.index("## Directions")
+
+    def test_survives_a_round_trip_unchanged(self):
+        content = self.content()
+        extras = read_extras(content, BaseRecipe)
+        rendered = render_recipe(parse_recipe(content, BaseRecipe), extras)
+
+        assert read_extras(rendered, BaseRecipe) == extras
+        assert find_lossy_fields(parse_recipe(content, BaseRecipe), extras) == []
+
+    def test_keeps_a_trailing_section_at_the_end(self):
+        content = self.content(before_directions=False)
+        extras = read_extras(content, BaseRecipe)
+
+        assert extras.sections[0].anchor == "directions"
+
+        rendered = render_recipe(parse_recipe(content, BaseRecipe), extras)
+
+        assert rendered.index("## My Own Notes") > rendered.index("## Directions")
+
+    def test_keeps_a_section_that_came_before_any_of_ours(self):
+        content = (
+            "---\nuid: ABC\n---\n\n# Khachapuri\n\n"
+            "## Shopping\n\nGo to the shop.\n\n"
+            "## Ingredients\n\n- 1 tsp salt\n"
+        )
+        extras = read_extras(content, BaseRecipe)
+
+        assert extras.sections[0].anchor == ""
+
+        rendered = render_recipe(parse_recipe(content, BaseRecipe), extras)
+
+        assert rendered.index("## Shopping") < rendered.index("## Ingredients")
+
+    def test_falls_back_to_the_end_when_its_anchor_is_gone(self):
+        """The recipe may lose the section the extra was sitting under."""
+        extras = Extras(sections=(ExtraSection("notes", "## Mine\n\nStuff."),))
+
+        rendered = render_recipe(BaseRecipe(name="Test", notes=""), extras)
+
+        assert read_extras(rendered, BaseRecipe) == Extras(
+            sections=(ExtraSection("", "## Mine\n\nStuff."),)
+        )
+
+    def test_an_empty_section_is_still_kept(self):
+        content = "---\nuid: ABC\n---\n\n# Test\n\n## Mine\n"
+
+        assert read_extras(content, BaseRecipe).sections == (
+            ExtraSection("", "## Mine"),
+        )
 
 
 class TestDocumentComparison:

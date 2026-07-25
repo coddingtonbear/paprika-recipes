@@ -247,6 +247,59 @@ class TestUserFrontmatter:
         assert entry.changed_fields() == ["rating"]
 
 
+class TestUserSections:
+    """A `## ` section of the user's own, added to a recipe file."""
+
+    def add_section(self, path: Path) -> None:
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "## Directions", "## Substitutions\n\nUse butter.\n\n## Directions"
+            ),
+            encoding="utf-8",
+        )
+
+    def test_is_not_an_edit_to_the_recipe(self, repository):
+        path = pull(repository, make_recipe())
+        self.add_section(path)
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+        assert not entry.has_local_changes()
+
+    def test_does_not_leak_into_a_recipe_field(self, repository):
+        path = pull(repository, make_recipe())
+        self.add_section(path)
+
+        recipe = repository.read_working(path)
+
+        assert recipe.ingredients == "1 tsp salt\n1 cup water"
+        assert "Substitutions" not in str(recipe.as_dict())
+
+    def test_survives_a_later_pull(self, repository):
+        recipe = make_recipe()
+        path = pull(repository, recipe)
+        self.add_section(path)
+
+        repository.store(make_recipe(uid=recipe.uid, notes="Updated upstream."))
+
+        assert "## Substitutions" in path.read_text(encoding="utf-8")
+        assert repository.read_working(path).notes == "Updated upstream."
+
+    def test_an_edit_beside_it_is_still_detected(self, repository):
+        path = pull(repository, make_recipe())
+        self.add_section(path)
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("1 tsp salt", "2 tsp salt"),
+            encoding="utf-8",
+        )
+
+        (entry,) = repository.status()
+
+        assert entry.changed_fields() == ["ingredients"]
+        assert entry.recipe.ingredients == "2 tsp salt\n1 cup water"
+
+
 class TestLocalChanges:
     """`has_local_changes` asks whether the *server* would care."""
 
@@ -292,7 +345,9 @@ class TestWriteSafety:
         import paprika_recipes.repository as repository_module
 
         monkeypatch.setattr(
-            repository_module, "find_lossy_fields", lambda recipe: ["directions"]
+            repository_module,
+            "find_lossy_fields",
+            lambda recipe, extras=None: ["directions"],
         )
 
         with pytest.raises(PaprikaUserError, match="could not be read back"):

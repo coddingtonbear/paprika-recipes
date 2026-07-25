@@ -34,7 +34,7 @@ whether the *server's* copy has moved.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -43,11 +43,12 @@ from typing import Any, Final
 from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaUserError
 from .markdown import (
+    Extras,
     documents_differ,
-    extra_frontmatter,
     find_lossy_fields,
     normalize_recipe,
     parse_recipe,
+    read_extras,
     render_recipe,
 )
 from .remote import RemoteRecipe
@@ -262,26 +263,26 @@ class Repository:
         except PaprikaUserError as e:
             raise PaprikaUserError(f"{path}: {e}")
 
-    def read_extra(self, path: Path) -> dict[str, Any]:
-        """The frontmatter in a working file that is not ours; see `markdown`."""
+    def read_extras(self, path: Path) -> Extras:
+        """The parts of a working file that are not the recipe; see `markdown`."""
         if not path.is_file():
-            return {}
+            return Extras()
 
         with open(path, encoding="utf-8") as inf:
-            return extra_frontmatter(inf.read(), RemoteRecipe)
+            return read_extras(inf.read(), RemoteRecipe)
 
     def write_working(
         self,
         recipe: RemoteRecipe,
         path: Path | None = None,
-        extra: Mapping[str, Any] | None = None,
+        extras: Extras | None = None,
     ) -> Path:
-        lossy = find_lossy_fields(recipe)
+        lossy = find_lossy_fields(recipe, extras)
         if lossy:
             raise PaprikaUserError(
-                f"Refusing to write {recipe.name!r}: the field(s) "
-                f"{', '.join(lossy)} could not be read back from the markdown "
-                "we would have written. Please report this as a bug."
+                f"Refusing to write {recipe.name!r}: {', '.join(lossy)} "
+                "could not be read back from the markdown we would have "
+                "written. Please report this as a bug."
             )
 
         if path is None:
@@ -290,7 +291,7 @@ class Repository:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, "w", encoding="utf-8") as outf:
-            outf.write(render_recipe(recipe, extra))
+            outf.write(render_recipe(recipe, extras))
 
         return path
 
@@ -309,7 +310,7 @@ class Repository:
         normalized = normalize_recipe(recipe)
         path = self.path_for(normalized, existing)
 
-        self.write_working(normalized, path, self.read_extra(path))
+        self.write_working(normalized, path, self.read_extras(path))
         self.write_base(normalized)
 
         return path
@@ -399,10 +400,11 @@ class Repository:
         with open(path, encoding="utf-8") as inf:
             content = inf.read()
 
-        # Render the base with the file's own extra frontmatter, so that a
-        # user's `tags:` is not mistaken for an edit to the recipe.
+        # Render the base with whatever of the file is the user's own, so
+        # that their `tags:` or their own `## ` section is not mistaken for an
+        # edit to the recipe.
         return documents_differ(
-            content, render_recipe(base, extra_frontmatter(content, RemoteRecipe))
+            content, render_recipe(base, read_extras(content, RemoteRecipe))
         )
 
     def status(self) -> list[WorkingRecipe]:

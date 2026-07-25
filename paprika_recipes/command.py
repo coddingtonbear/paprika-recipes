@@ -7,13 +7,16 @@ from enum import Enum
 from importlib.metadata import entry_points
 from pathlib import Path
 
+from rich.console import Console
+
 from .cache import Cache, DirectoryCache, NullCache, WriteOnlyDirectoryCache
 from .constants import DEFAULT_DOMAIN
+from .credentials import ask_for_account, authenticate
 from .exceptions import PaprikaProgrammingError
 from .remote import Remote
 from .repository import Repository
 from .types import ConfigDict
-from .utils import get_cache_dir, get_password_for_email
+from .utils import get_cache_dir, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +85,7 @@ class BaseCommand(metaclass=ABCMeta):
 
 class RemoteCommand(BaseCommand):
     _cache: Cache | None = None
+    _account: str = ""
 
     class CacheChoices(Enum):
         none = "none"
@@ -149,20 +153,40 @@ class RemoteCommand(BaseCommand):
         super()._add_arguments(parser, config)
 
     def get_account(self) -> str:
-        return self.options.account or self.config.get("default_account", "")
+        return self._account or self.options.account or self.default_account()
+
+    def default_account(self) -> str:
+        """The account to fall back on when none was named."""
+        return self.config.get("default_account", "")
 
     def get_domain(self) -> str:
         return self.options.domain or DEFAULT_DOMAIN
 
     def get_remote(self) -> Remote:
-        account = self.get_account()
+        """Connect to an account, asking for whatever we have not been told."""
+        console = Console()
 
-        return Remote(
-            account,
-            get_password_for_email(account),
-            domain=self.get_domain(),
-            cache=self.get_cache(),
+        self._account = self.get_account() or ask_for_account(console)
+
+        remote = authenticate(
+            self._account, self.get_domain(), self.get_cache(), console
         )
+
+        self.remember_account(self._account)
+
+        return remote
+
+    def remember_account(self, account: str) -> None:
+        """Remember the first account we are told about, so we stop asking.
+
+        Only the first: someone with two accounts should not find their
+        default quietly reassigned by whichever one they used last.
+        """
+        if self.config.get("default_account"):
+            return
+
+        self.config["default_account"] = account
+        save_config(self.config)
 
 
 class RepositoryCommand(BaseCommand):
@@ -202,12 +226,8 @@ class RepositorySyncCommand(RepositoryCommand, RemoteCommand):
     is what makes it possible to copy a directory into another account.
     """
 
-    def get_account(self) -> str:
-        return (
-            self.options.account
-            or self.repository.config.account
-            or self.config.get("default_account", "")
-        )
+    def default_account(self) -> str:
+        return self.repository.config.account or super().default_account()
 
     def get_domain(self) -> str:
         return self.options.domain or self.repository.config.domain

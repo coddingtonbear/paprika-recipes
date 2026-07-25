@@ -16,8 +16,7 @@ would make the round-trip lossy for no gain.
 from __future__ import annotations
 
 import io
-from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, TypeVar
 
 from yaml import YAMLError
@@ -31,6 +30,10 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound="BaseRecipe")
 
 FRONTMATTER_DELIMITER: Final = "---"
+
+#: The document's title, and the level at which sections are delimited.
+TITLE_PREFIX: Final = "# "
+HEADING_PREFIX: Final = "## "
 
 #: Written as the document's `# ` title rather than as a frontmatter field.
 TITLE_FIELD: Final = "name"
@@ -62,15 +65,42 @@ BODY_FIELDS: Final = frozenset(
 _HEADINGS_BY_TITLE: Final = dict(SECTIONS)
 
 
-def render_recipe(recipe: BaseRecipe, extra: Mapping[str, Any] | None = None) -> str:
-    """Render a recipe as a markdown document with YAML frontmatter.
+@dataclass(frozen=True)
+class ExtraSection:
+    """A `## ` section of a recipe file that is not one of ours."""
 
-    `extra` holds frontmatter the recipe itself knows nothing about -- see
-    `extra_frontmatter` for why we carry it around.
+    #: The recipe field whose section this one followed, so that it can be put
+    #: back where its author left it.  Empty if it came before any of ours.
+    anchor: str
+    #: The section verbatim, its heading included.
+    text: str
+
+
+@dataclass(frozen=True)
+class Extras:
+    """The parts of a recipe file that belong to its reader, not to Paprika.
+
+    A recipe file is meant to be a good citizen of whatever directory it lands
+    in, and somewhere like an Obsidian vault that means the file is not
+    exclusively ours: a user may add `tags:` to the frontmatter and a
+    `## Substitutions` section of their own to the body.  Paprika has nowhere
+    to put either, so we never send them anywhere -- but we do carry them
+    through unchanged whenever we rewrite the file.
     """
+
+    frontmatter: dict[str, Any] = field(default_factory=dict)
+    sections: tuple[ExtraSection, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.frontmatter or self.sections)
+
+
+def render_recipe(recipe: BaseRecipe, extras: Extras | None = None) -> str:
+    """Render a recipe as a markdown document with YAML frontmatter."""
+    extras = extras if extras is not None else Extras()
     data = recipe.as_dict()
 
-    frontmatter: dict[str, Any] = dict(extra or {})
+    frontmatter: dict[str, Any] = dict(extras.frontmatter)
     frontmatter.update(
         {key: value for key, value in data.items() if key not in BODY_FIELDS}
     )
@@ -85,6 +115,9 @@ def render_recipe(recipe: BaseRecipe, extra: Mapping[str, Any] | None = None) ->
     if description:
         out.write(f"\n{description}\n")
 
+    placed = {""}
+    _render_extras(out, extras, "")
+
     for title, field_name in SECTIONS:
         value = data.get(field_name) or ""
         if not value:
@@ -94,17 +127,41 @@ def render_recipe(recipe: BaseRecipe, extra: Mapping[str, Any] | None = None) ->
         out.write(_render_field(field_name, value))
         out.write("\n")
 
+        placed.add(field_name)
+        _render_extras(out, extras, field_name)
+
+    # A section anchored to one of ours that this recipe no longer has still
+    # needs to go somewhere; the end is the only honest place left for it.
+    for section in extras.sections:
+        if section.anchor not in placed:
+            out.write(f"\n{section.text}\n")
+
     return out.getvalue()
 
 
 def parse_recipe(content: str, recipe_class: type[T]) -> T:
-    """Read back a document produced by `render_recipe`."""
+    """Read the recipe out of a document produced by `render_recipe`."""
     frontmatter, body = _split_frontmatter(content)
+    fields, _ = _parse_body(body)
 
     data: dict[str, Any] = dict(frontmatter)
-    data.update(_parse_body(body))
+    data.update(fields)
 
     return recipe_class.from_dict(data)
+
+
+def read_extras(content: str, recipe_class: type[BaseRecipe]) -> Extras:
+    """Read the parts of a document that are not the recipe."""
+    frontmatter, body = _split_frontmatter(content)
+    known = {field.name for field in recipe_class.get_all_fields()}
+    _, sections = _parse_body(body)
+
+    return Extras(
+        frontmatter={
+            key: value for key, value in frontmatter.items() if key not in known
+        },
+        sections=sections,
+    )
 
 
 def documents_differ(content: str, rendered: str) -> bool:
@@ -133,22 +190,6 @@ def documents_differ(content: str, rendered: str) -> bool:
     ours, our_body = _split_frontmatter(rendered)
 
     return ours != theirs or our_body != their_body
-
-
-def extra_frontmatter(content: str, recipe_class: type[BaseRecipe]) -> dict[str, Any]:
-    """Return the frontmatter keys that are not fields of a recipe.
-
-    A recipe file is meant to be a good citizen of whatever directory it lands
-    in, and somewhere like an Obsidian vault that means the frontmatter is not
-    exclusively ours -- a user may well add `tags`, `aliases` or anything else
-    alongside the fields we put there.  We never interpret those keys, but we
-    do carry them through unchanged whenever we rewrite the file, so that
-    pulling an updated recipe does not quietly discard them.
-    """
-    frontmatter, _ = _split_frontmatter(content)
-    known = {field.name for field in recipe_class.get_all_fields()}
-
-    return {key: value for key, value in frontmatter.items() if key not in known}
 
 
 def normalize_recipe(recipe: T) -> T:
@@ -180,21 +221,26 @@ def normalize_recipe(recipe: T) -> T:
     return replace(recipe, **changes) if changes else recipe
 
 
-def find_lossy_fields(recipe: BaseRecipe) -> list[str]:
-    """Return the fields that do not survive a render/parse round-trip.
+def find_lossy_fields(recipe: BaseRecipe, extras: Extras | None = None) -> list[str]:
+    """Return the parts of a recipe that do not survive a render/parse round-trip.
 
     Under normal circumstances this is empty; it is non-empty when a recipe
-    contains something our format cannot express unambiguously (a directions
-    blob containing a line that looks like one of our own headings, say).
-    Callers can use it to refuse to write a file they would not be able to
-    read back correctly.
+    contains something our format cannot express unambiguously.  Callers can
+    use it to refuse to write a file they would not be able to read back
+    correctly.
     """
-    reparsed = parse_recipe(render_recipe(recipe), type(recipe))
+    rendered = render_recipe(recipe, extras)
+    reparsed = parse_recipe(rendered, type(recipe))
 
     before = recipe.as_dict()
     after = reparsed.as_dict()
 
-    return sorted(key for key in before if before[key] != after.get(key))
+    lossy = sorted(key for key in before if before[key] != after.get(key))
+
+    if extras is not None and read_extras(rendered, type(recipe)) != extras:
+        lossy.append("the sections you added yourself")
+
+    return lossy
 
 
 def _render_field(field_name: str, value: str) -> str:
@@ -222,26 +268,30 @@ def _parse_field(field_name: str, value: str) -> str:
     return "\n".join(lines)
 
 
-def _is_section_heading(line: str) -> bool:
-    return line.startswith("## ") and line[3:].strip() in _HEADINGS_BY_TITLE
+def _is_heading(line: str) -> bool:
+    return line.startswith(HEADING_PREFIX)
 
 
 def _escape_headings(value: str) -> str:
-    """Stop prose from being mistaken for one of our own section headings.
+    """Stop prose from being mistaken for a section heading.
 
-    A recipe whose directions happen to contain a line reading `## Notes` is
-    unusual but perfectly legal, and we would otherwise read half its
-    directions back as notes. Backslash-escaping the `#` is standard CommonMark
-    and renders as a literal `#`, so the file still looks right to a human.
+    Every `## ` line we write out of a recipe's prose is escaped, not just the
+    ones that collide with our own section names.  That is what makes the
+    format unambiguous in the other direction: an *unescaped* `## ` in a file
+    is always a section boundary, so a section the user added themselves can
+    be told apart from a line of directions that merely looks like one.
+
+    Backslash-escaping the `#` is standard CommonMark and renders as a literal
+    `#`, so the file still reads correctly to a human and to any previewer.
     """
     return "\n".join(
-        f"\\{line}" if _is_section_heading(line) else line for line in value.split("\n")
+        f"\\{line}" if _is_heading(line) else line for line in value.split("\n")
     )
 
 
 def _unescape_headings(value: str) -> str:
     return "\n".join(
-        line[1:] if line.startswith("\\") and _is_section_heading(line[1:]) else line
+        line[1:] if line.startswith(f"\\{HEADING_PREFIX}") else line
         for line in value.split("\n")
     )
 
@@ -280,39 +330,57 @@ def _split_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     )
 
 
-def _parse_body(body: str) -> dict[str, str]:
+def _parse_body(body: str) -> tuple[dict[str, str], tuple[ExtraSection, ...]]:
+    """Split a document body into the recipe's fields and everything else."""
     result: dict[str, str] = {}
-
-    # `None` while we are accumulating the description -- that is, before we
-    # have encountered any of our own `## ` headings.
-    current: str | None = None
-    buffer: list[str] = []
     seen_title = False
 
-    def flush() -> None:
-        text = "\n".join(buffer).strip("\n")
-
-        if current is None:
-            if text:
-                result[DESCRIPTION_FIELD] = _parse_field(DESCRIPTION_FIELD, text)
-        else:
-            result[current] = _parse_field(current, text)
+    # Each block is a heading and the lines beneath it; the first block, with
+    # no heading, is the description.
+    blocks: list[tuple[str, list[str]]] = [("", [])]
 
     for line in body.split("\n"):
-        if not seen_title and line.startswith("# "):
-            result[TITLE_FIELD] = line[2:].strip()
+        if not seen_title and line.startswith(TITLE_PREFIX):
+            result[TITLE_FIELD] = line[len(TITLE_PREFIX) :].strip()
             seen_title = True
-            buffer = []
+            blocks = [("", [])]
             continue
 
-        if line.startswith("## ") and line[3:].strip() in _HEADINGS_BY_TITLE:
-            flush()
-            current = _HEADINGS_BY_TITLE[line[3:].strip()]
-            buffer = []
+        if _is_heading(line):
+            blocks.append((line[len(HEADING_PREFIX) :].strip(), []))
             continue
 
-        buffer.append(line)
+        blocks[-1][1].append(line)
 
-    flush()
+    extras: list[ExtraSection] = []
+    anchor = ""
 
-    return result
+    for heading, lines in blocks:
+        text = "\n".join(lines).strip("\n")
+
+        if not heading:
+            if text:
+                result[DESCRIPTION_FIELD] = _parse_field(DESCRIPTION_FIELD, text)
+            continue
+
+        field_name = _HEADINGS_BY_TITLE.get(heading)
+
+        if field_name is None:
+            heading_line = f"{HEADING_PREFIX}{heading}"
+            extras.append(
+                ExtraSection(
+                    anchor, f"{heading_line}\n\n{text}" if text else heading_line
+                )
+            )
+            continue
+
+        result[field_name] = _parse_field(field_name, text)
+        anchor = field_name
+
+    return result, tuple(extras)
+
+
+def _render_extras(out: io.StringIO, extras: Extras, anchor: str) -> None:
+    for section in extras.sections:
+        if section.anchor == anchor:
+            out.write(f"\n{section.text}\n")

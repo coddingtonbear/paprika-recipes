@@ -12,19 +12,13 @@ pip install paprika-recipes
 
 ## Getting started
 
-Store your account details in your system keyring:
-
-```
-paprika-recipes store-password
-```
-
-You'll be asked for your e-mail and password. After that the app fetches your password from the keyring rather than prompting you.
-
-Then check out your recipes:
+There is nothing to set up. Check out your recipes:
 
 ```
 paprika-recipes clone ~/recipes
 ```
+
+The first time, you'll be asked for your Paprika e-mail and password. The password goes into your system keyring and the e-mail is recorded in the directory itself, so nothing asks again — and if your password ever changes, you're simply asked for the new one the next time it doesn't work.
 
 Every recipe becomes a markdown file:
 
@@ -99,7 +93,25 @@ The one thing `restore` will not do is delete a recipe you created yourself and 
 
 **Reformatting a file is not an edit.** Rewrapping a list or reordering the frontmatter changes the file without changing the recipe, and nothing gets uploaded for it.
 
-**Your own frontmatter is left alone.** If these files live in a note vault, you will likely add `tags:` or `aliases:` of your own. Those are preserved across a `pull`; they are yours, and we neither interpret nor discard them.
+**Anything you add to a file is left alone.** If these files live in a note vault, you will likely add `tags:` or `aliases:` to the frontmatter, and quite possibly a section of your own:
+
+```markdown
+## Ingredients
+
+- 1⅓ cups bread flour
+
+## Substitutions
+
+Bread flour works, but 00 flour is better.
+
+## Directions
+
+...
+```
+
+Paprika has nowhere to put that section, so it is never uploaded — but it is not discarded either. It stays where you left it, including when a `pull` rewrites the file around it, and it does not count as a change to the recipe.
+
+If you want a line that genuinely begins with `##` inside your directions, just write it: we escape it on the way out (`\## Step one`) and unescape it on the way back, which is standard Markdown and previews as you'd expect. An *unescaped* `##` always means a section.
 
 **Renaming a file is fine.** Recipes are tracked by the `uid` in their frontmatter, not by their filename or location, so you can rename files and sort them into folders freely.
 

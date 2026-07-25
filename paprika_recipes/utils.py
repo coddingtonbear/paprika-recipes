@@ -3,12 +3,10 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import keyring
 import yaml
 from appdirs import user_config_dir
 
 from .constants import APP_NAME
-from .exceptions import AuthenticationError
 from .types import ConfigDict
 
 if TYPE_CHECKING:
@@ -71,25 +69,6 @@ def dump_yaml(*args: Any):
 
 def load_yaml(*args: Any) -> Any:
     return yaml.safe_load(*args)
-
-
-def get_password_for_email(email: str) -> str:
-    if not email:
-        raise AuthenticationError(
-            "No account was specified; run `paprika-recipes store-password` "
-            "to store credentials and select a default account, or name an "
-            "account explicitly using `--account`."
-        )
-
-    password = keyring.get_password(APP_NAME, email)
-
-    if not password:
-        raise AuthenticationError(
-            f"No password stored for {email}; "
-            "store a password for this user using store-password first."
-        )
-
-    return password
 
 
 def get_config_dir() -> Path:
