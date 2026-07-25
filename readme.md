@@ -15,10 +15,12 @@ pip install paprika-recipes
 There is nothing to set up. Check out your recipes:
 
 ```
-paprika-recipes clone ~/recipes
+paprika-recipes clone you@example.com ~/recipes
 ```
 
-The first time, you'll be asked for your Paprika e-mail and password. The password goes into your system keyring and the e-mail is recorded in the directory itself, so nothing asks again — and if your password ever changes, you're simply asked for the new one the next time it doesn't work.
+You'll be asked for your Paprika password. It goes into your system keyring, and the account is recorded in the directory itself, so nothing asks again — and if your password ever changes, you're simply asked for the new one the next time it doesn't work.
+
+The account is named rather than remembered, deliberately. There is no default account to fall back on, because which account a directory belongs to decides what gets written into it and where everything in it is sent from then on.
 
 Every recipe becomes a markdown file:
 
@@ -70,6 +72,48 @@ Changes not yet sent to Paprika:
 ```
 
 Both `pull` and `push` accept `--dry-run` if you would rather see the whole plan first.
+
+### Writing a recipe yourself
+
+Write a markdown file with a `# Title` and whatever sections you want, and `push` will create it in Paprika. It gets a `uid:` written into its frontmatter at that moment, and is an ordinary tracked recipe from then on.
+
+### Scripting
+
+Every command takes `--json`, which writes a versioned document to stdout and moves everything else — the report, the progress bar, any prompts — to stderr:
+
+```
+$ paprika-recipes status --json
+{
+  "version": 1,
+  "unchanged": 81,
+  "recipes": [
+    {
+      "uid": "4C855813-25B8-41CD-96E7-5B38AA7AAAAF",
+      "name": "One-Hour Pizza",
+      "path": "/home/you/recipes/One-Hour Pizza.md",
+      "status": "modified",
+      "conflicted": false,
+      "changed_fields": ["rating"],
+      "unsyncable": ["tags"]
+    }
+  ]
+}
+```
+
+Exit codes say what happened without your having to read the output:
+
+| code | meaning |
+|---|---|
+| 0 | everything asked for was done |
+| 1 | it ran, but something needs you — a conflict, a recipe it would not push |
+| 2 | the command line was malformed |
+| 3 | could not log in |
+| 4 | Paprika could not be reached, or refused what we sent |
+| 5 | something about the directory or its files is wrong |
+
+`status` exits 0 whether or not you have local changes, since having them is the ordinary state of a working directory. Pass `--exit-code` — after `git diff --exit-code` — to have it answer that question instead.
+
+Because `--json` implies nobody is watching, it will not stop to ask for a password; run any command once from a terminal to get your credentials into the keyring first.
 
 ## How syncing works
 
@@ -129,6 +173,18 @@ If you want a line that genuinely begins with `##` inside your directions, just 
 
 **Renaming a file is fine.** Recipes are tracked by the `uid` in their frontmatter, not by their filename or location, so you can rename files and sort them into folders freely.
 
+### Keeping out of your vault's way
+
+If your vault already uses `rating:`, `source:`, `categories:` or `created:` for something of its own, clone with a prefix:
+
+```
+paprika-recipes clone you@example.com ~/vault/Recipes --frontmatter-prefix paprika_
+```
+
+Every field Paprika owns is then written as `paprika_rating:`, `paprika_uid:` and so on — and, just as importantly, an *unprefixed* field is yours. It stays in the file and is never uploaded, even if it happens to share a name with one of ours.
+
+The prefix is chosen when you clone and cannot be changed afterwards without rewriting every file, so decide at the start. If the two ever do get out of step — a plugin that prunes frontmatter it does not recognise, say — `push` will notice that your files have stopped being identifiable and refuse to do anything, rather than treating them as new recipes and your existing ones as deleted.
+
 ### Recipe files
 
 The format is markdown with YAML frontmatter. The prose -- description, ingredients, directions, notes, nutritional information -- is passed through exactly as Paprika stores it, and everything else lives in the frontmatter.
@@ -148,4 +204,4 @@ You get the same markdown files `clone` writes, so everything above about the fo
 
 What this route does *not* have is any memory of where a recipe came from, so there is no `status`, no change detection and no conflict handling. It is a straight unpack and repack. If you want those, use `clone`.
 
-`create-archive` searches subdirectories, and skips a `.paprika` directory if it finds one — so you can also point it at a directory you cloned, and get an archive out of your account.
+`create-archive` searches subdirectories, and skips a `.paprika` directory if it finds one — so you can also point it at a directory you cloned, and get an archive out of your account. One caveat if you did that with `--frontmatter-prefix`: the archive commands have no directory to ask about a prefix and always read and write unprefixed files.
