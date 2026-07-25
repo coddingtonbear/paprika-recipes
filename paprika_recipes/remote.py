@@ -6,7 +6,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from .cache import Cache, NullCache
-from .constants import DEFAULT_DOMAIN
+from .constants import DEFAULT_DOMAIN, USER_AGENT
 from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
 from .types import RecipeManager, RemoteRecipeIdentifier
@@ -42,6 +42,7 @@ class Remote(RecipeManager):
         self._domain = domain
         self._cache = cache if cache else NullCache()
         self._session = requests.Session()
+        self._session.headers["User-Agent"] = USER_AGENT
         self._session.mount(
             "https://",
             HTTPAdapter(
@@ -149,9 +150,15 @@ class Remote(RecipeManager):
     def bearer_token(self):
         if not self._bearer_token:
             try:
+                # Paprika's own app posts a third field here, `receipt`, holding
+                # the App Store receipt for its iOS purchase.  Omitting it is
+                # fine -- the field is only validated when it is present and
+                # non-empty, and the token comes back with the same scope and
+                # account mode either way -- which is just as well, since there
+                # is no way for this program to obtain one.
                 result = self._request(
                     "post",
-                    "/api/v1/account/login/",
+                    "/api/v2/account/login/",
                     data={"email": self._email, "password": self._password},
                     authenticated=False,
                 )

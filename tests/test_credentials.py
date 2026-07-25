@@ -35,7 +35,7 @@ class FakeRemote:
     @property
     def bearer_token(self) -> str:
         if self.password != RIGHT:
-            raise RequestError("POST /api/v1/account/login/ returned an error: Invalid")
+            raise RequestError("POST /api/v2/account/login/ returned an error: Invalid")
 
         return "a-token"
 
