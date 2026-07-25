@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from paprika_recipes.commands.restore import matches
-from paprika_recipes.exceptions import PaprikaUserError
+from paprika_recipes.exceptions import PaprikaUserError, RequestError
 from paprika_recipes.remote import RemoteRecipe
 from paprika_recipes.repository import Repository, RepositoryConfig, Status
 from paprika_recipes.sync import Action, Syncer, restore
@@ -20,8 +20,11 @@ class FakeAccount:
 
     def __init__(self, *recipes: RemoteRecipe):
         self.recipes: dict[str, dict[str, Any]] = {}
+        self.photos: dict[str, bytes] = {}
         self.notified = 0
         self.index_requests = 0
+        self.photo_downloads = 0
+        self.edits = 0
 
         for recipe in recipes:
             self.put(recipe)
@@ -35,6 +38,14 @@ class FakeAccount:
 
     def get_recipe_by_id(self, id: str, hash: str) -> RemoteRecipe:
         return RemoteRecipe.from_dict(self.recipes[id])
+
+    def download_photo(self, url: str) -> bytes:
+        self.photo_downloads += 1
+
+        try:
+            return self.photos[url]
+        except KeyError:
+            raise RequestError(f"there is no photo at {url}")
 
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         # Paprika rewrites the hash on every upload, and we cannot compute the
@@ -56,11 +67,24 @@ class FakeAccount:
     def edit(self, uid: str, **changes: Any) -> None:
         """Change a recipe the way another paprika client would."""
         recipe = RemoteRecipe.from_dict(self.recipes[uid])
+        self.edits += 1
 
-        self.put(replace(recipe, **changes, hash=f"server-edit-{len(changes)}-{uid}"))
+        self.put(replace(recipe, **changes, hash=f"server-edit-{self.edits}-{uid}"))
 
     def remove(self, uid: str) -> None:
         del self.recipes[uid]
+
+    def give_photo(
+        self, uid: str, data: bytes = b"jpeg bytes", version: int = 1
+    ) -> str:
+        """Attach a photo to a recipe the way the paprika app would."""
+        name = f"{uid}-{version}.jpg"
+        url = f"https://photos.example/{name}"
+
+        self.photos[url] = data
+        self.edit(uid, photo=name, photo_hash=f"photo-hash-{version}", photo_url=url)
+
+        return name
 
 
 def make_recipe(uid: str, **overrides: Any) -> RemoteRecipe:
@@ -848,3 +872,241 @@ class TestSyncingADirectoryWithAFrontmatterPrefix:
 
         with pytest.raises(PaprikaUserError, match="frontmatter_prefix"):
             Syncer(repository, account).push()
+
+
+class TestPhotosComeDownWithAPull:
+    def test_the_photo_lands_in_attachments(self, repository, account):
+        account.give_photo("A", b"khachapuri glamour shot")
+
+        Syncer(repository, account).pull()
+
+        photo = repository.attachments_dir / "A-1.jpg"
+        assert photo.read_bytes() == b"khachapuri glamour shot"
+
+    def test_the_file_embeds_it(self, repository, account):
+        account.give_photo("A")
+
+        Syncer(repository, account).pull()
+
+        content = repository.paths_by_uid()["A"].read_text(encoding="utf-8")
+        assert "](attachments/A-1.jpg)" in content
+        assert "photo" not in content.split("---")[1]
+
+    def test_an_unchanged_recipe_is_not_downloaded_again(self, repository, account):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+
+        Syncer(repository, account).pull()
+
+        assert account.photo_downloads == 1
+
+    def test_an_attachment_tidied_away_by_hand_is_healed(self, repository, account):
+        """A vault user pruning "unused" files must not break the embed forever."""
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        (repository.attachments_dir / "A-1.jpg").unlink()
+
+        Syncer(repository, account).pull()
+
+        assert (repository.attachments_dir / "A-1.jpg").is_file()
+
+    def test_a_replaced_photo_replaces_the_attachment(self, repository, account):
+        account.give_photo("A", b"old", version=1)
+        Syncer(repository, account).pull()
+        account.give_photo("A", b"new", version=2)
+
+        Syncer(repository, account).pull()
+
+        assert (repository.attachments_dir / "A-2.jpg").read_bytes() == b"new"
+        assert not (repository.attachments_dir / "A-1.jpg").exists()
+        assert "A-2.jpg" in repository.paths_by_uid()["A"].read_text(encoding="utf-8")
+
+    def test_a_photo_removed_in_the_app_removes_the_attachment(
+        self, repository, account
+    ):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        account.edit("A", photo="", photo_hash="", photo_url=None)
+
+        Syncer(repository, account).pull()
+
+        assert not (repository.attachments_dir / "A-1.jpg").exists()
+        assert "![" not in repository.paths_by_uid()["A"].read_text(encoding="utf-8")
+
+    def test_a_removed_recipe_takes_its_attachment_with_it(self, repository, account):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        account.remove("A")
+
+        Syncer(repository, account).pull()
+
+        assert not (repository.attachments_dir / "A-1.jpg").exists()
+
+    def test_a_dry_run_downloads_nothing(self, repository, account):
+        account.give_photo("A")
+
+        Syncer(repository, account).pull(dry_run=True)
+
+        assert account.photo_downloads == 0
+        assert not repository.attachments_dir.exists()
+
+    def test_a_failed_download_does_not_stop_the_pull(self, repository, account):
+        account.give_photo("A")
+        del account.photos["https://photos.example/A-1.jpg"]
+
+        report = Syncer(repository, account).pull()
+
+        assert actions(report)["Recipe A"] is Action.ADDED
+        (skipped,) = report.of(Action.SKIPPED)
+        assert "could not be downloaded" in skipped.detail
+        assert sorted(repository.paths_by_uid()) == ["A", "B"]
+
+    def test_a_failed_download_is_retried_on_the_next_pull(self, repository, account):
+        account.give_photo("A", b"eventually")
+        url = "https://photos.example/A-1.jpg"
+        data = account.photos.pop(url)
+        Syncer(repository, account).pull()
+
+        account.photos[url] = data
+        report = Syncer(repository, account).pull()
+
+        assert not report.of(Action.SKIPPED)
+        assert (repository.attachments_dir / "A-1.jpg").read_bytes() == b"eventually"
+
+
+class TestPhotosStayTheServersOnAPush:
+    """Until add/remove lands, no edit to a file can change a photo."""
+
+    def delete_embed(self, repository, uid: str) -> None:
+        path = repository.paths_by_uid()[uid]
+        path.write_text(
+            "\n".join(
+                line
+                for line in path.read_text(encoding="utf-8").split("\n")
+                if not line.startswith("![")
+            ),
+            encoding="utf-8",
+        )
+
+    def test_a_deleted_embed_alone_is_nothing_to_push(self, repository, account):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        self.delete_embed(repository, "A")
+
+        report = Syncer(repository, account).push()
+
+        (skipped,) = report.of(Action.SKIPPED)
+        assert "how the file is written" in skipped.detail
+        assert account.recipes["A"]["photo"] == "A-1.jpg"
+
+    def test_an_edit_beside_a_deleted_embed_keeps_the_servers_photo(
+        self, repository, account
+    ):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        self.delete_embed(repository, "A")
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Recipe A"] is Action.UPLOADED
+        assert account.recipes["A"]["ingredients"] == "2 tsp salt"
+        assert account.recipes["A"]["photo"] == "A-1.jpg"
+        assert "photo" in report.of(Action.UPLOADED)[0].detail
+
+    def test_the_push_refresh_restores_the_embed(self, repository, account):
+        """After a push, the file goes back to saying what the server says."""
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        self.delete_embed(repository, "A")
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+
+        Syncer(repository, account).push()
+
+        content = repository.paths_by_uid()["A"].read_text(encoding="utf-8")
+        assert "](attachments/A-1.jpg)" in content
+
+    def test_a_hand_written_embed_is_not_uploaded(self, repository, account):
+        Syncer(repository, account).pull()
+        (repository.root / "Mine.md").write_text(
+            "---\ntags: [dinner]\n---\n\n# Mine\n\n"
+            "![my dinner](attachments/dinner.jpg)\n\n"
+            "## Ingredients\n\n- 1 tsp salt\n",
+            encoding="utf-8",
+        )
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Mine"] is Action.CREATED
+        created = next(
+            data for data in account.recipes.values() if data["name"] == "Mine"
+        )
+        assert created["photo"] == ""
+        assert "photo" in report.of(Action.CREATED)[0].detail
+
+    def test_a_trashed_recipe_takes_its_attachment_with_it(self, repository, account):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        repository.paths_by_uid()["A"].unlink()
+
+        Syncer(repository, account).push()
+
+        assert not (repository.attachments_dir / "A-1.jpg").exists()
+        assert repository.read_photo_state("A") is None
+
+
+class TestPhotosAndMerges:
+    def test_a_merge_keeps_the_servers_photo(self, repository, account):
+        account.give_photo("A", version=1)
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+        account.give_photo("A", b"newer", version=2)
+
+        report = Syncer(repository, account).pull()
+
+        assert actions(report)["Recipe A"] is Action.MERGED
+        content = repository.paths_by_uid()["A"].read_text(encoding="utf-8")
+        assert "](attachments/A-2.jpg)" in content
+        assert (repository.attachments_dir / "A-2.jpg").read_bytes() == b"newer"
+
+    def test_a_deleted_embed_does_not_conflict_with_a_new_photo(
+        self, repository, account
+    ):
+        """Photo changes cannot conflict while the server owns them."""
+        account.give_photo("A", version=1)
+        Syncer(repository, account).pull()
+
+        path = repository.paths_by_uid()["A"]
+        path.write_text(
+            "\n".join(
+                line
+                for line in path.read_text(encoding="utf-8").split("\n")
+                if not line.startswith("![")
+            ).replace("1 tsp salt", "2 tsp salt"),
+            encoding="utf-8",
+        )
+        account.give_photo("A", version=2)
+
+        report = Syncer(repository, account).pull()
+
+        assert actions(report)["Recipe A"] is Action.MERGED
+        assert "2 tsp salt" in path.read_text(encoding="utf-8")
+
+
+class TestRestoringPhotos:
+    def test_restore_brings_the_embed_back(self, repository, account):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        path = repository.paths_by_uid()["A"]
+        path.write_text(
+            "\n".join(
+                line
+                for line in path.read_text(encoding="utf-8").split("\n")
+                if not line.startswith("![")
+            ),
+            encoding="utf-8",
+        )
+
+        restore(repository, repository.status())
+
+        assert "](attachments/A-1.jpg)" in path.read_text(encoding="utf-8")

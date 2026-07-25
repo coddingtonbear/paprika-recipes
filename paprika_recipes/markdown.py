@@ -11,13 +11,24 @@ ingredient amounts out into an italicised prefix.  Real recipes contain lines
 like `185 g wet ingredients: 2 large eggs, 3 large egg yolks, and enough water
 to reach 185 g in total.` -- there is no amount to extract, and guessing at one
 would make the round-trip lossy for no gain.
+
+A recipe's photo is the one field with a visible home in the body that is not
+prose: it is written as an ordinary markdown image embed directly beneath the
+title, pointing into the `attachments/` folder beside the recipe files.  The
+embed is the photo's representation in the document, and it round-trips like
+any other field -- which is what will eventually let deleting the line mean
+"remove the photo" and writing one mean "add this photo".  The photo's
+server-side bookkeeping (`photo_hash` and friends) has no place in a file a
+human reads, and lives only in the base copy; see `HIDDEN_FIELDS`.
 """
 
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, TypeVar
+from urllib.parse import quote, unquote
 
 from yaml import YAMLError
 
@@ -49,6 +60,28 @@ UID_SUFFIXES: Final = ("_uid", "-uid")
 #: Written directly beneath the title, with no heading of its own.
 DESCRIPTION_FIELD: Final = "description"
 
+#: Written as an image embed between the title and the description, holding
+#: the filename of the recipe's photo inside `attachments/`.
+PHOTO_FIELD: Final = "photo"
+
+#: Where photos live, as a sibling of the recipe files.  The embed points
+#: here, and it is a folder a note vault will already feel at home with.
+ATTACHMENTS_DIRNAME: Final = "attachments"
+
+#: Photo bookkeeping that travels with the recipe but has no place in the
+#: file: server-side hashes and URLs that mean nothing to a reader and would
+#: only rot in their frontmatter.  They live in the base copy instead, so
+#: they are never lost -- just never shown.
+HIDDEN_FIELDS: Final = frozenset({"photo_hash", "photo_large", "photo_url"})
+
+#: Everything about a recipe's photo, the embed and the bookkeeping alike.
+PHOTO_FIELDS: Final = frozenset({PHOTO_FIELD}) | HIDDEN_FIELDS
+
+#: A line that is nothing but an image embed pointing into `attachments/`.
+#: This is the one line shape besides a `## ` heading that belongs to the
+#: format rather than to the recipe's own text; see `_escape_prose`.
+PHOTO_EMBED: Final = re.compile(rf"^!\[[^\]]*\]\({ATTACHMENTS_DIRNAME}/([^)]+)\)\s*$")
+
 #: Written as `## ` sections, in this order.  Every recipe field not named
 #: here or above is written to the frontmatter instead.
 SECTIONS: Final[tuple[tuple[str, str], ...]] = (
@@ -67,7 +100,7 @@ LIST_FIELDS: Final = frozenset({"ingredients"})
 BULLETS: Final = ("- ", "* ", "+ ")
 
 BODY_FIELDS: Final = frozenset(
-    {TITLE_FIELD, DESCRIPTION_FIELD} | {field for _, field in SECTIONS}
+    {TITLE_FIELD, DESCRIPTION_FIELD, PHOTO_FIELD} | {field for _, field in SECTIONS}
 )
 
 _HEADINGS_BY_TITLE: Final = dict(SECTIONS)
@@ -150,7 +183,7 @@ class DocumentFormat:
             {
                 f"{self.frontmatter_prefix}{key}": value
                 for key, value in data.items()
-                if key not in BODY_FIELDS
+                if key not in BODY_FIELDS and key not in HIDDEN_FIELDS
             }
         )
 
@@ -211,7 +244,14 @@ class DocumentFormat:
         before = recipe.as_dict()
         after = reparsed.as_dict()
 
-        lossy = sorted(key for key in before if before[key] != after.get(key))
+        lossy = sorted(
+            key
+            for key in before
+            # The photo's bookkeeping deliberately never enters the file, so
+            # its absence on the way back out is not a loss; the base copy is
+            # what carries it.  See `HIDDEN_FIELDS`.
+            if key not in HIDDEN_FIELDS and before[key] != after.get(key)
+        )
 
         if extras is not None and self.read_extras(rendered, type(recipe)) != extras:
             lossy.append("the sections you added yourself")
@@ -264,6 +304,10 @@ def _render(data: dict[str, Any], frontmatter: dict[str, Any], extras: Extras) -
     dump_yaml(frontmatter, out)
     out.write(f"{FRONTMATTER_DELIMITER}\n\n")
     out.write(f"# {data.get(TITLE_FIELD, '')}\n")
+
+    photo = data.get(PHOTO_FIELD) or ""
+    if photo:
+        out.write(f"\n{_photo_embed(photo, data.get(TITLE_FIELD) or '')}\n")
 
     description = _render_field(DESCRIPTION_FIELD, data.get(DESCRIPTION_FIELD) or "")
     if description:
@@ -349,11 +393,19 @@ def normalize_recipe(recipe: T) -> T:
     Rather than treat that as a failure, we flatten it on the way in, so that
     the base copy and the working file always agree about what the recipe says.
 
-    This is the only normalisation we perform. It discards nothing a cook would
+    The photo gets one extra courtesy: Paprika spells "no photo" as `null`,
+    and our markdown can only spell it as an absent embed, which reads back
+    as `""`.  The two mean the same thing, so `null` is flattened on the way
+    in rather than reported as a loss.
+
+    That is all the normalisation we perform. It discards nothing a cook would
     notice, and it only ever reaches the server for a field the user edited
     anyway.
     """
     changes: dict[str, Any] = {}
+
+    if getattr(recipe, PHOTO_FIELD, None) is None:
+        changes[PHOTO_FIELD] = ""
 
     for field_name in BODY_FIELDS:
         value = getattr(recipe, field_name, None)
@@ -371,7 +423,7 @@ def normalize_recipe(recipe: T) -> T:
 
 def _render_field(field_name: str, value: str) -> str:
     if field_name not in LIST_FIELDS:
-        return _escape_headings(value.rstrip("\n"))
+        return _escape_prose(value.rstrip("\n"))
 
     # Every line of a list field is prefixed with a bullet, which already
     # stops it being mistaken for one of our headings.
@@ -380,7 +432,7 @@ def _render_field(field_name: str, value: str) -> str:
 
 def _parse_field(field_name: str, value: str) -> str:
     if field_name not in LIST_FIELDS:
-        return _unescape_headings(value)
+        return _unescape_prose(value)
 
     lines = []
     for line in value.split("\n"):
@@ -398,8 +450,41 @@ def _is_heading(line: str) -> bool:
     return line.startswith(HEADING_PREFIX)
 
 
-def _escape_headings(value: str) -> str:
-    """Stop prose from being mistaken for a section heading.
+def _photo_embed(photo: str, name: str) -> str:
+    """The image embed line for a recipe's photo.
+
+    The filename is percent-encoded, which both keeps the link valid markdown
+    whatever the name holds and makes the encoding reversible on the way back
+    in.  The alt text is only a courtesy to screen readers and broken links;
+    it is regenerated on every render and never parsed.
+    """
+    alt = "".join(
+        character
+        for character in (f"Photo of {name}" if name else "Photo")
+        if character not in "[]\\\n"
+    )
+
+    return f"![{alt}]({ATTACHMENTS_DIRNAME}/{quote(photo, safe='')})"
+
+
+def _split_photo(text: str) -> tuple[str, str]:
+    """Take the photo embed off the top of the description block.
+
+    Only the first line of the block can be a photo -- that is where `_render`
+    puts it, directly beneath the title.  An image the user pastes anywhere
+    else in their prose is their text, not our markup, and stays put.
+    """
+    first, _, rest = text.partition("\n")
+    match = PHOTO_EMBED.match(first)
+
+    if match is None:
+        return "", text
+
+    return unquote(match.group(1)), rest.strip("\n")
+
+
+def _escape_prose(value: str) -> str:
+    """Stop prose from being mistaken for markup that belongs to the format.
 
     Every `## ` line we write out of a recipe's prose is escaped, not just the
     ones that collide with our own section names.  That is what makes the
@@ -407,19 +492,31 @@ def _escape_headings(value: str) -> str:
     is always a section boundary, so a section the user added themselves can
     be told apart from a line of directions that merely looks like one.
 
-    Backslash-escaping the `#` is standard CommonMark and renders as a literal
-    `#`, so the file still reads correctly to a human and to any previewer.
+    A line that looks like one of our photo embeds gets the same treatment,
+    for the same reason: an unescaped embed at the top of the document must
+    always mean the recipe's photo, never a coincidence of its description.
+
+    Backslash-escaping the first character is standard CommonMark and renders
+    as the literal text, so the file still reads correctly to a human and to
+    any previewer.
     """
     return "\n".join(
-        f"\\{line}" if _is_heading(line) else line for line in value.split("\n")
-    )
-
-
-def _unescape_headings(value: str) -> str:
-    return "\n".join(
-        line[1:] if line.startswith(f"\\{HEADING_PREFIX}") else line
+        f"\\{line}" if _is_heading(line) or PHOTO_EMBED.match(line) else line
         for line in value.split("\n")
     )
+
+
+def _unescape_prose(value: str) -> str:
+    return "\n".join(
+        line[1:] if _is_escaped(line) else line for line in value.split("\n")
+    )
+
+
+def _is_escaped(line: str) -> bool:
+    if not line.startswith("\\"):
+        return False
+
+    return _is_heading(line[1:]) or PHOTO_EMBED.match(line[1:]) is not None
 
 
 def _split_frontmatter(content: str) -> tuple[dict[str, Any], str]:
@@ -485,6 +582,10 @@ def _parse_body(body: str) -> tuple[dict[str, str], tuple[ExtraSection, ...]]:
         text = "\n".join(lines).strip("\n")
 
         if not heading:
+            photo, text = _split_photo(text)
+
+            if photo:
+                result[PHOTO_FIELD] = photo
             if text:
                 result[DESCRIPTION_FIELD] = _parse_field(DESCRIPTION_FIELD, text)
             continue

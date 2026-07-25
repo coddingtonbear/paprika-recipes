@@ -538,3 +538,99 @@ class TestADirectoryWithAFrontmatterPrefix:
         (entry,) = Repository(repository.root).status()
 
         assert entry.status is Status.UNCHANGED
+
+
+class TestPhotoStorage:
+    """Attachments on disk, and the record of what we downloaded."""
+
+    JPEG = b"\xff\xd8\xff\xe0 not really a jpeg"
+
+    def test_writes_the_photo_into_attachments(self, repository):
+        path = repository.write_photo("A", "A-1.jpg", "hash-1", self.JPEG)
+
+        assert path == repository.attachments_dir / "A-1.jpg"
+        assert path.read_bytes() == self.JPEG
+
+    def test_remembers_what_it_wrote(self, repository):
+        repository.write_photo("A", "A-1.jpg", "hash-1", self.JPEG)
+
+        state = repository.read_photo_state("A")
+
+        assert state.photo == "A-1.jpg"
+        assert state.photo_hash == "hash-1"
+        # Recorded for the day photos become editable: it is what will tell
+        # an attachment the user replaced from the one we downloaded.
+        assert len(state.content_hash) == 64
+
+    def test_a_replaced_photo_does_not_leave_the_old_file_behind(self, repository):
+        repository.write_photo("A", "A-1.jpg", "hash-1", self.JPEG)
+        repository.write_photo("A", "A-2.jpg", "hash-2", self.JPEG)
+
+        assert not (repository.attachments_dir / "A-1.jpg").exists()
+        assert (repository.attachments_dir / "A-2.jpg").is_file()
+
+    def test_dropping_a_photo_removes_the_file_and_the_record(self, repository):
+        repository.write_photo("A", "A-1.jpg", "hash-1", self.JPEG)
+
+        repository.drop_photo("A")
+
+        assert not (repository.attachments_dir / "A-1.jpg").exists()
+        assert repository.read_photo_state("A") is None
+
+    def test_dropping_a_photo_that_was_never_there_is_fine(self, repository):
+        repository.drop_photo("A")
+
+    def test_knows_nothing_about_a_photo_it_never_wrote(self, repository):
+        assert repository.read_photo_state("A") is None
+
+    @pytest.mark.parametrize("name", ["../escape.jpg", "a/b.jpg", "..", ".", ""])
+    def test_refuses_a_photo_name_that_would_leave_attachments(self, repository, name):
+        with pytest.raises(PaprikaUserError, match="not a name"):
+            repository.attachment_path(name)
+
+
+class TestPhotoChangeDetection:
+    """Until photos can be edited locally, the embed is not an edit."""
+
+    def photographed(self, **overrides):
+        data = {
+            "photo": "A-1.jpg",
+            "photo_hash": "hash-1",
+            "photo_url": "https://photos.example/A-1.jpg",
+        }
+        data.update(overrides)
+
+        return make_recipe(**data)
+
+    def test_a_pulled_photo_reads_as_unchanged(self, repository):
+        pull(repository, self.photographed())
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+        assert "](attachments/A-1.jpg)" in entry.path.read_text(encoding="utf-8")
+
+    def test_a_deleted_embed_is_not_a_local_change(self, repository):
+        path = pull(repository, self.photographed())
+        path.write_text(
+            "\n".join(
+                line
+                for line in path.read_text(encoding="utf-8").split("\n")
+                if not line.startswith("![")
+            ),
+            encoding="utf-8",
+        )
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.MODIFIED
+        assert entry.changed_fields() == []
+        assert not entry.has_local_changes()
+
+    def test_the_hidden_bookkeeping_never_reaches_the_file(self, repository):
+        path = pull(repository, self.photographed(photo_hash="secret-hash"))
+
+        content = path.read_text(encoding="utf-8")
+
+        assert "secret-hash" not in content
+        assert "photo_url" not in content

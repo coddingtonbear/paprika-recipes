@@ -100,6 +100,21 @@ class Remote(RecipeManager):
             recipe.uid: recipe.hash for recipe in self._get_remote_recipe_identifiers()
         }
 
+    def download_photo(self, url: str) -> bytes:
+        """Fetch the bytes of a recipe's photo.
+
+        Photo URLs point at signed object storage rather than at the API, so
+        this is a plain GET: no bearer token, and no JSON envelope around
+        the image.
+        """
+        try:
+            response = self._session.get(url)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            raise RequestError(f"The photo at {url} could not be downloaded: {e}")
+
+        return response.content
+
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         recipe.update_hash()
 

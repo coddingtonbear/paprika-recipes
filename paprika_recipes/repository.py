@@ -8,6 +8,9 @@ the server.
         .paprika/
             config.yaml             -- which account this directory belongs to
             recipes/<uid>.json      -- the recipe as last pulled ("the base")
+            photos/<uid>.json       -- which photo we last downloaded, and
+                                       a digest of the bytes we wrote
+        attachments/<photo>         -- recipe photos, linked from the files
         <Recipe Name>.md            -- the file you actually edit
 
 The base copies earn their keep twice over.  They are the merge base when both
@@ -33,10 +36,11 @@ whether the *server's* copy has moved.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from collections.abc import Container, Iterator
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Final, TypeVar
@@ -44,13 +48,14 @@ from typing import Any, Final, TypeVar
 from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaProgrammingError, PaprikaUserError
 from .markdown import (
+    ATTACHMENTS_DIRNAME,
     DocumentFormat,
     Extras,
     documents_differ,
     normalize_recipe,
     parse_recipe,
 )
-from .merge import has_conflict_markers
+from .merge import IGNORED_FIELDS, has_conflict_markers
 from .recipe import BaseRecipe
 from .remote import RemoteRecipe
 from .utils import dump_yaml, load_yaml
@@ -59,6 +64,7 @@ T = TypeVar("T", bound=BaseRecipe)
 
 REPOSITORY_DIRNAME: Final = ".paprika"
 BASE_DIRNAME: Final = "recipes"
+PHOTOS_DIRNAME: Final = "photos"
 CONFIG_FILENAME: Final = "config.yaml"
 RECIPE_SUFFIX: Final = ".md"
 
@@ -107,8 +113,11 @@ class WorkingRecipe:
         return sorted(
             key
             for key in current
-            # `hash` is the server's token, not ours to diff on.
-            if key != "hash" and current[key] != base.get(key)
+            # `hash` is the server's token, and the photo is the server's
+            # photo: editing the embed line cannot yet add or remove one, so
+            # a difference there is not an edit anyone can push.  See
+            # `merge.IGNORED_FIELDS`, which is the same judgement.
+            if key not in IGNORED_FIELDS and current[key] != base.get(key)
         )
 
     @property
@@ -140,6 +149,26 @@ class WorkingRecipe:
             return True
 
         return bool(self.changed_fields())
+
+
+@dataclass(frozen=True)
+class PhotoState:
+    """What we know about the photo we last wrote into `attachments/`.
+
+    `photo` and `photo_hash` are the server's: the filename the recipe points
+    at and the token that says which version of the image it is.  Together
+    they are what lets a pull decide whether the attachment on disk is
+    already the photo the server holds.
+
+    `content_hash` is ours: a digest of the bytes we actually wrote.  Nothing
+    reads it yet -- it is recorded now so that, once photos can be edited
+    locally, an attachment the user replaced can be told apart from the one
+    we downloaded.
+    """
+
+    photo: str = ""
+    photo_hash: str = ""
+    content_hash: str = ""
 
 
 @dataclass
@@ -226,6 +255,14 @@ class Repository:
         return self.repository_dir / BASE_DIRNAME
 
     @property
+    def attachments_dir(self) -> Path:
+        return self._root / ATTACHMENTS_DIRNAME
+
+    @property
+    def photo_state_dir(self) -> Path:
+        return self.repository_dir / PHOTOS_DIRNAME
+
+    @property
     def config_path(self) -> Path:
         return self.repository_dir / CONFIG_FILENAME
 
@@ -285,6 +322,82 @@ class Repository:
             return set()
 
         return {path.stem for path in self.base_dir.glob("*.json")}
+
+    # -- Photos ---------------------------------------------------------------
+
+    def attachment_path(self, photo: str) -> Path:
+        """Where a photo named `photo` lives.
+
+        The name is the server's, so it is checked rather than trusted: a
+        name that would land anywhere but directly inside `attachments/` is
+        refused instead of written.
+        """
+        if not photo or "/" in photo or "\\" in photo or photo in (".", ".."):
+            raise PaprikaUserError(
+                f"{photo!r} is not a name we are willing to write a photo to."
+            )
+
+        return self.attachments_dir / photo
+
+    def read_photo_state(self, uid: str) -> PhotoState | None:
+        path = self._photo_state_path(uid)
+
+        if not path.is_file():
+            return None
+
+        with open(path, encoding="utf-8") as inf:
+            try:
+                data = json.load(inf)
+            except ValueError:
+                return None
+
+        return PhotoState(
+            photo=str(data.get("photo", "")),
+            photo_hash=str(data.get("photo_hash", "")),
+            content_hash=str(data.get("content_hash", "")),
+        )
+
+    def write_photo(self, uid: str, photo: str, photo_hash: str, data: bytes) -> Path:
+        """Write a recipe's photo into `attachments/`, and remember what it was."""
+        path = self.attachment_path(photo)
+        state = self.read_photo_state(uid)
+
+        if state is not None and state.photo and state.photo != photo:
+            # The recipe's photo was replaced under a new name; the old file
+            # is nobody's now, and leaving it would litter the vault.
+            self.attachment_path(state.photo).unlink(missing_ok=True)
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+        self.photo_state_dir.mkdir(parents=True, exist_ok=True)
+        with open(self._photo_state_path(uid), "w", encoding="utf-8") as outf:
+            json.dump(
+                asdict(
+                    PhotoState(
+                        photo=photo,
+                        photo_hash=photo_hash,
+                        content_hash=hashlib.sha256(data).hexdigest(),
+                    )
+                ),
+                outf,
+                indent=2,
+                sort_keys=True,
+            )
+
+        return path
+
+    def drop_photo(self, uid: str) -> None:
+        """Remove a recipe's photo from `attachments/`, and the record of it."""
+        state = self.read_photo_state(uid)
+
+        if state is not None and state.photo:
+            self.attachment_path(state.photo).unlink(missing_ok=True)
+
+        self._photo_state_path(uid).unlink(missing_ok=True)
+
+    def _photo_state_path(self, uid: str) -> Path:
+        return self.photo_state_dir / f"{uid}.json"
 
     # -- The working directory ----------------------------------------------
 

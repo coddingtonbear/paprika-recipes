@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import IO, Final, TypeVar
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from .markdown import ATTACHMENTS_DIRNAME
 from .recipe import BaseRecipe
 from .types import UNKNOWN, RecipeManager
 
@@ -35,14 +36,14 @@ RECIPE_SUFFIX: Final = ".paprikarecipe"
 
 
 def detach_photo(recipe: ArchiveRecipe, path: Path) -> ArchiveRecipe:
-    """Write a recipe's photo beside its file, and point the recipe at it.
+    """Write a recipe's photo into `attachments/`, and point the recipe at it.
 
     An archive carries its photos inline, base64-encoded.  That is fine for a
     zip file and hopeless for a text file you intend to read: a single recipe
     would bury its own ingredients under a megabyte of base64.  So the image
-    is written next to the recipe as an ordinary image file, which is both
-    legible and what a note vault would want anyway, and the recipe is left
-    naming it in the way Paprika itself names photos.
+    is written to the `attachments/` folder beside the recipe as an ordinary
+    image file -- the same place a cloned directory keeps its photos, which
+    is what lets the recipe's own markdown embed point at it.
     """
     if not recipe.photo_data:
         return recipe
@@ -54,18 +55,24 @@ def detach_photo(recipe: ArchiveRecipe, path: Path) -> ArchiveRecipe:
         # ugly, but it is the recipe's data and losing it would be worse.
         return recipe
 
-    photo = path.with_suffix(_photo_suffix(image))
+    photo = path.parent / ATTACHMENTS_DIRNAME / (path.stem + _photo_suffix(image))
+    photo.parent.mkdir(parents=True, exist_ok=True)
     photo.write_bytes(image)
 
     return replace(recipe, photo=photo.name, photo_data=None)
 
 
 def attach_photo(recipe: ArchiveRecipe, path: Path) -> ArchiveRecipe:
-    """Read back a photo that was written beside a recipe file."""
+    """Read back a photo that was written out for a recipe file."""
     if recipe.photo_data or not recipe.photo:
         return recipe
 
-    photo = path.parent / recipe.photo
+    photo = path.parent / ATTACHMENTS_DIRNAME / recipe.photo
+
+    if not photo.is_file():
+        # Extractions from before photos moved into `attachments/` left the
+        # image directly beside the recipe file.
+        photo = path.parent / recipe.photo
 
     if not photo.is_file():
         return recipe

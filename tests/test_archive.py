@@ -134,12 +134,12 @@ class TestRecipesSharingATitle:
 
 
 class TestPhotos:
-    def test_a_photo_is_written_beside_the_recipe(self, tmp_path):
+    def test_a_photo_is_written_into_attachments(self, tmp_path):
         recipe = ArchiveRecipe(name="Test", photo_data=PNG_DATA)
 
         result = detach_photo(recipe, tmp_path / "Test.md")
 
-        assert (tmp_path / "Test.png").read_bytes() == PNG
+        assert (tmp_path / "attachments" / "Test.png").read_bytes() == PNG
         assert result.photo == "Test.png"
 
     def test_the_photo_leaves_the_recipe_itself(self, tmp_path):
@@ -173,6 +173,16 @@ class TestPhotos:
         assert result.photo_data == "not base64 at all!!"
 
     def test_a_photo_is_read_back_in(self, tmp_path):
+        (tmp_path / "attachments").mkdir()
+        (tmp_path / "attachments" / "Test.png").write_bytes(PNG)
+        recipe = ArchiveRecipe(name="Test", photo="Test.png")
+
+        result = attach_photo(recipe, tmp_path / "Test.md")
+
+        assert result.photo_data == PNG_DATA
+
+    def test_a_photo_from_an_old_extraction_is_still_found(self, tmp_path):
+        """Extractions used to leave the image directly beside the recipe."""
         (tmp_path / "Test.png").write_bytes(PNG)
         recipe = ArchiveRecipe(name="Test", photo="Test.png")
 
@@ -210,16 +220,31 @@ class TestExtracting:
         """The old `.paprikarecipe.yaml` format is gone."""
         assert [path.name for path in extract(entry()).iterdir()] == ["Khachapuri.md"]
 
+    def test_hides_the_photo_bookkeeping_from_the_frontmatter(self, extract):
+        content = (extract(entry()) / "Khachapuri.md").read_text(encoding="utf-8")
+        frontmatter = content.split("---")[1]
+
+        assert "photo:" not in frontmatter
+        assert "photo_hash:" not in frontmatter
+        assert "photo_large:" not in frontmatter
+
     def test_disambiguates_recipes_sharing_a_name(self, extract):
         root = extract(entry(), entry(uid="OTHER-UID"))
 
         assert len(list(root.glob("*.md"))) == 2
 
-    def test_writes_a_photo_beside_its_recipe(self, extract):
+    def test_writes_a_photo_into_attachments(self, extract):
         root = extract(entry(photo_data=PNG_DATA))
 
-        assert (root / "Khachapuri.png").read_bytes() == PNG
+        assert (root / "attachments" / "Khachapuri.png").read_bytes() == PNG
         assert "iVBOR" not in (root / "Khachapuri.md").read_text(encoding="utf-8")
+
+    def test_embeds_the_photo_in_the_document(self, extract):
+        root = extract(entry(photo_data=PNG_DATA))
+
+        content = (root / "Khachapuri.md").read_text(encoding="utf-8")
+
+        assert "](attachments/Khachapuri.png)" in content
 
 
 class TestCreating:

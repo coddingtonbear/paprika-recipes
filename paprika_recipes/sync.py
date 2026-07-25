@@ -42,8 +42,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
-from .exceptions import PaprikaUserError
-from .markdown import foreign_uid_key
+from .exceptions import PaprikaError, PaprikaUserError
+from .markdown import PHOTO_FIELDS, foreign_uid_key
 from .merge import has_conflict_markers, merge_recipes
 from .remote import RemoteRecipe
 from .repository import (
@@ -61,6 +61,8 @@ class RemoteAccount(Protocol):
     def get_recipe_index(self) -> dict[str, str]: ...
 
     def get_recipe_by_id(self, id: str, hash: str) -> RemoteRecipe: ...
+
+    def download_photo(self, url: str) -> bytes: ...
 
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe: ...
 
@@ -251,8 +253,12 @@ class Syncer:
                     # The server's copy has not moved since we pulled it, so
                     # there is nothing to bring down -- whatever the user has
                     # done to the file locally is their business until they
-                    # push it.
+                    # push it.  A photo whose attachment has gone missing is
+                    # ours to put back, though; see `_ensure_photo`.
                     report.unchanged += 1
+
+                    if not dry_run:
+                        self._ensure_photo(report, entry.base)
                     continue
 
             recipe = self._fetch(uid, index[uid])
@@ -264,6 +270,7 @@ class Syncer:
             if entry is None:
                 if not dry_run:
                     paths[uid] = self._repository.store(recipe, paths)
+                    self._ensure_photo(report, recipe)
                 report.record(Action.ADDED, uid, recipe.name)
             elif entry.status is Status.ADDED:
                 report.record(
@@ -285,6 +292,7 @@ class Syncer:
             else:
                 if not dry_run:
                     paths[uid] = self._repository.store(recipe, paths)
+                    self._ensure_photo(report, recipe)
                 report.record(Action.UPDATED, uid, recipe.name)
 
         self._pull_removals(report, set(index) - trashed, entries, dry_run)
@@ -322,6 +330,7 @@ class Syncer:
             # The file holds the merge; the base copy holds what the server
             # holds, so that the merge is a local change we can then push.
             paths[entry.uid] = self._repository.store(merge.recipe, paths, base=remote)
+            self._ensure_photo(report, remote)
 
         if merge.clean:
             report.record(
@@ -366,6 +375,7 @@ class Syncer:
                 if entry.path is not None:
                     entry.path.unlink(missing_ok=True)
                 self._repository.delete_base(uid)
+                self._repository.drop_photo(uid)
 
             report.record(Action.REMOVED, uid, name)
 
@@ -396,7 +406,7 @@ class Syncer:
 
         if uploaded:
             # Then take the server's word for what each recipe now says.
-            self._refresh(uploaded)
+            self._refresh(report, uploaded)
 
         return report
 
@@ -470,18 +480,29 @@ class Syncer:
 
         action = Action.CREATED if entry.status is Status.ADDED else Action.UPLOADED
 
+        # What goes up is the file's recipe with the server's own photo put
+        # back; see `_keep_servers_photo`.
+        upload = _keep_servers_photo(recipe, entry.base)
+
         if not dry_run:
             self._notify(name)
-            self._remote.upload_recipe(recipe)
+            self._remote.upload_recipe(upload)
 
         # Uploading is the moment to say what is not being uploaded: the rest
         # of the file stays behind, and someone who wrote it there deserves to
         # be told rather than left to discover it.
+        notes = []
         kept = entry.extras.describe()
 
-        report.record(
-            action, entry.uid, name, f"{kept} stayed in your file" if kept else ""
-        )
+        if kept:
+            notes.append(f"{kept} stayed in your file")
+        if upload.photo != recipe.photo:
+            notes.append(
+                "its photo stayed as the server has it; adding or removing "
+                "photos from here is not supported yet"
+            )
+
+        report.record(action, entry.uid, name, "; ".join(notes))
 
         return "" if dry_run else entry.uid
 
@@ -503,6 +524,7 @@ class Syncer:
         if entry.base is None or entry.uid not in index:
             if not dry_run:
                 self._repository.delete_base(entry.uid)
+                self._repository.drop_photo(entry.uid)
 
             report.record(
                 Action.REMOVED, entry.uid, name, "was already gone from the server"
@@ -523,13 +545,14 @@ class Syncer:
             self._notify(name)
             self._remote.upload_recipe(replace(entry.base, in_trash=True))
             self._repository.delete_base(entry.uid)
+            self._repository.drop_photo(entry.uid)
 
         report.record(Action.TRASHED, entry.uid, name)
 
         # Nothing to re-fetch: refreshing would write the file back out.
         return ""
 
-    def _refresh(self, uids: Iterable[str]) -> None:
+    def _refresh(self, report: SyncReport, uids: Iterable[str]) -> None:
         """Re-pull recipes we just uploaded, so their base copies are the server's.
 
         Uploading rewrites a recipe's hash, and Paprika may normalise other
@@ -544,7 +567,61 @@ class Syncer:
             if uid not in index:
                 continue
 
-            self._repository.store(self._fetch(uid, index[uid]), paths)
+            recipe = self._fetch(uid, index[uid])
+            self._repository.store(recipe, paths)
+            self._ensure_photo(report, recipe)
+
+    # -- Photos ---------------------------------------------------------------
+
+    def _ensure_photo(self, report: SyncReport, recipe: RemoteRecipe) -> None:
+        """Bring a recipe's photo down into `attachments/`, if it is not there.
+
+        Called with what the recipe's *base copy* holds, since that is the
+        photo its file's embed points at.  Doing nothing is the common case:
+        the state file says we already downloaded this exact photo, and the
+        attachment is still on disk.  Everything else -- a recipe seen for the
+        first time, a photo replaced in the app, an attachment tidied away by
+        hand -- ends the same way, with the photo downloaded again.
+
+        A failure is reported rather than raised.  One unreachable image
+        should not stop a pull, and because the attachment is simply left
+        missing, every later pull keeps trying until it succeeds.
+        """
+        repository = self._repository
+
+        try:
+            if not recipe.photo:
+                # The server's copy has no photo, so nothing should be left
+                # sitting in `attachments/` claiming otherwise.
+                repository.drop_photo(recipe.uid)
+                return
+
+            state = repository.read_photo_state(recipe.uid)
+
+            if (
+                state is not None
+                and state.photo == recipe.photo
+                and state.photo_hash == recipe.photo_hash
+                and repository.attachment_path(recipe.photo).is_file()
+            ):
+                return
+
+            if not recipe.photo_url:
+                raise PaprikaError("the server did not say where to fetch it from")
+
+            repository.write_photo(
+                recipe.uid,
+                recipe.photo,
+                recipe.photo_hash,
+                self._remote.download_photo(recipe.photo_url),
+            )
+        except (PaprikaError, PaprikaUserError) as e:
+            report.record(
+                Action.SKIPPED,
+                recipe.uid,
+                recipe.name,
+                f"its photo could not be downloaded: {e}",
+            )
 
     # -- Plumbing -----------------------------------------------------------
 
@@ -557,6 +634,22 @@ class Syncer:
     def _notify(self, name: str) -> None:
         if self._on_recipe is not None:
             self._on_recipe(name)
+
+
+def _keep_servers_photo(
+    recipe: RemoteRecipe, base: RemoteRecipe | None
+) -> RemoteRecipe:
+    """The recipe as uploaded: the file's fields, but the server's photo.
+
+    A photo cannot yet be added or removed by editing a file, and the file is
+    parsed into the very recipe we upload -- so without this, deleting the
+    embed line in passing would quietly clear the photo on the server, and an
+    embed in a hand-written recipe would name a photo whose bytes were never
+    uploaded.
+    """
+    source = base if base is not None else RemoteRecipe(uid=recipe.uid)
+
+    return replace(recipe, **{name: getattr(source, name) for name in PHOTO_FIELDS})
 
 
 def _and(names: Iterable[str]) -> str:

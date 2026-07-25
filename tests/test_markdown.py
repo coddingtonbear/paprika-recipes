@@ -144,6 +144,119 @@ class TestRoundTrip:
         assert parse_recipe(rendered, BaseRecipe).ingredients == "2 eggs"
 
 
+class TestPhotoEmbeds:
+    """The photo is an image embed beneath the title, not a frontmatter key."""
+
+    def recipe(self, **overrides) -> BaseRecipe:
+        data: dict = {
+            "name": "Khachapuri",
+            "photo": "4C855813.jpg",
+            "photo_hash": "abc123",
+            "description": "A Georgian cheese bread.",
+        }
+        data.update(overrides)
+
+        return BaseRecipe(**data)
+
+    def test_writes_the_embed_between_the_title_and_the_description(self):
+        rendered = render_recipe(self.recipe())
+
+        assert (
+            "# Khachapuri\n\n"
+            "![Photo of Khachapuri](attachments/4C855813.jpg)\n\n"
+            "A Georgian cheese bread." in rendered
+        )
+
+    def test_writes_no_embed_for_a_recipe_without_a_photo(self):
+        assert "![" not in render_recipe(self.recipe(photo=""))
+
+    def test_keeps_the_photo_bookkeeping_out_of_the_frontmatter(self):
+        rendered = render_recipe(self.recipe())
+        frontmatter = rendered.split("---")[1]
+
+        assert "photo" not in frontmatter
+
+    def test_round_trips_the_photo_through_the_embed(self):
+        assert roundtrip(self.recipe()).photo == "4C855813.jpg"
+
+    def test_round_trips_an_awkward_filename(self):
+        """Spaces and parentheses must not break the link or the read-back."""
+        recipe = self.recipe(photo="My Photo (1).jpg")
+
+        rendered = render_recipe(recipe)
+
+        assert "attachments/My%20Photo%20%281%29.jpg" in rendered
+        assert parse_recipe(rendered, BaseRecipe).photo == "My Photo (1).jpg"
+
+    def test_a_deleted_embed_reads_as_no_photo(self):
+        """The gesture that will eventually mean "remove this photo"."""
+        rendered = "\n".join(
+            line
+            for line in render_recipe(self.recipe()).split("\n")
+            if not line.startswith("![")
+        )
+
+        assert parse_recipe(rendered, BaseRecipe).photo == ""
+
+    def test_a_hand_written_embed_reads_as_the_photo(self):
+        """And this one will eventually mean "add this photo"."""
+        content = (
+            "---\nuid: ABC\n---\n\n# Mine\n\n"
+            "![whatever alt text](attachments/my-pic.jpg)\n\n"
+            "My own recipe.\n"
+        )
+
+        recipe = parse_recipe(content, BaseRecipe)
+
+        assert recipe.photo == "my-pic.jpg"
+        assert recipe.description == "My own recipe."
+
+    def test_the_embed_never_leaks_into_the_description(self):
+        assert roundtrip(self.recipe()).description == "A Georgian cheese bread."
+
+    def test_a_description_that_starts_with_an_embed_lookalike(self):
+        """The recipe's own prose must never be mistaken for our markup."""
+        description = "![Photo of X](attachments/x.jpg)\nis how you embed an image."
+        recipe = self.recipe(photo="", description=description)
+
+        assert find_lossy_fields(recipe) == []
+        assert roundtrip(recipe).description == description
+        assert roundtrip(recipe).photo == ""
+
+    def test_an_image_elsewhere_in_prose_is_left_alone(self):
+        directions = "Bake it.\n\n![result](https://example.com/done.jpg)"
+        recipe = self.recipe(directions=directions)
+
+        assert roundtrip(recipe).directions == directions
+
+    def test_loses_nothing_a_photographed_recipe_holds(self):
+        recipe = self.recipe(photo_large=None)
+
+        assert find_lossy_fields(recipe) == []
+
+    def test_still_reads_the_photo_from_old_style_frontmatter(self):
+        """Files written before the embed existed carried `photo:` up top."""
+        content = "---\nuid: ABC\nphoto: old.jpg\n---\n\n# Mine\n"
+
+        assert parse_recipe(content, BaseRecipe).photo == "old.jpg"
+
+    def test_normalizes_paprikas_null_photo_to_an_absent_one(self):
+        """Paprika spells "no photo" as `null`; our markdown spells it ""."""
+        recipe = BaseRecipe.from_dict({"name": "Test", "photo": None})
+
+        assert normalize_recipe(recipe).photo == ""
+        assert find_lossy_fields(normalize_recipe(recipe)) == []
+
+    def test_prefixed_directories_render_the_same_embed(self):
+        rendered = DocumentFormat("paprika_").render(self.recipe())
+
+        assert "![Photo of Khachapuri](attachments/4C855813.jpg)" in rendered
+        assert (
+            DocumentFormat("paprika_").parse_recipe(rendered, BaseRecipe).photo
+            == "4C855813.jpg"
+        )
+
+
 class TestHeadingCollisions:
     """Prose containing a line that looks like one of our section headings."""
 

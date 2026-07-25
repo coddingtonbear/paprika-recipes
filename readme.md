@@ -35,6 +35,8 @@ uid: 4C855813-25B8-41CD-96E7-5B38AA7AAAAF
 
 # Khachapuri
 
+![Photo of Khachapuri](attachments/D2246B0B-3E32-4C36-A9F9-6E5F53CD6EBD.jpg)
+
 A Georgian cheese bread.
 
 ## Ingredients
@@ -151,6 +153,10 @@ The one thing `restore` will not do is delete a recipe you created yourself and 
 
 **Reformatting a file is not an edit.** Rewrapping a list or reordering the frontmatter changes the file without changing the recipe, and nothing gets uploaded for it.
 
+**Photos come along.** A recipe's photo is downloaded into an `attachments/` folder beside your files, and the recipe embeds it with ordinary markdown image markup directly beneath its title — so it shows up in your editor, your vault, and anywhere else markdown renders. If you tidy the attachment away by hand, the next `pull` quietly puts it back.
+
+For now the photo itself belongs to the app: deleting the embed line or writing your own does not remove or add a photo in Paprika, and `push` will say so rather than let you think it did. Adding and removing photos from the directory is planned; the embed is already the way you will do it.
+
 **Anything you add to a file is left alone.** If these files live in a note vault, you will likely add `tags:` or `aliases:` to the frontmatter, and quite possibly a section of your own:
 
 ```markdown
@@ -200,7 +206,7 @@ paprika-recipes extract-archive export.paprikarecipes ./recipes/
 paprika-recipes create-archive ./recipes/ new-export.paprikarecipes
 ```
 
-You get the same markdown files `clone` writes, so everything above about the format applies. Recipe photos are written next to their recipe as ordinary image files (`Khachapuri.png` beside `Khachapuri.md`) and folded back in when you repack — an archive stores them inline as base64, which is fine for a zip file and hopeless for a file you intend to read.
+You get the same markdown files `clone` writes, so everything above about the format applies. Recipe photos are written into the same `attachments/` folder a cloned directory uses, embedded from their recipes, and folded back in when you repack — an archive stores them inline as base64, which is fine for a zip file and hopeless for a file you intend to read.
 
 What this route does *not* have is any memory of where a recipe came from, so there is no `status`, no change detection and no conflict handling. It is a straight unpack and repack. If you want those, use `clone`.
 
