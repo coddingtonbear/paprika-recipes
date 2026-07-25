@@ -77,7 +77,21 @@ The directory keeps a record of each recipe as it last arrived from Paprika, in 
 
 A few things are worth knowing:
 
-**Conflicts are reported, not merged.** If a recipe changed on both sides, neither copy is touched and you are told which fields differ. Recipes are prose, and a tool that silently interleaved two versions of your directions would be worse than one that asks you to look.
+**Changes on both sides are merged.** If you edited a recipe locally and it also changed in Paprika, `pull` reconciles the two: edits to different parts of the recipe both survive, and only genuinely overlapping edits need you. Those get the same conflict markers git uses:
+
+```markdown
+## Directions
+
+<<<<<<< yours
+Bake for 20 minutes.
+=======
+Bake for 25 minutes.
+>>>>>>> paprika
+```
+
+The merged recipe is then just a local change like any other — `status` shows it, `push` sends it, `restore` throws it away. A recipe with markers still in it is refused by `push` until you have edited them out, so a half-resolved merge can never reach your account.
+
+Two things can't be merged that way: the recipe's **name**, and any non-prose field like the **rating** or a time. There is nowhere in a rating to write "either 4 or 5, you decide", so if one of those changed on both sides, nothing is touched and you are told which field disagreed.
 
 **Deleting a file moves the recipe to Paprika's trash.** Deletion syncs in both directions, but never destructively: a file you delete is pushed as a move into Paprika's own trash, where the app can still recover it, and a recipe you delete or trash in Paprika is removed from your directory on the next `pull`. Nothing is permanently destroyed by either.
 

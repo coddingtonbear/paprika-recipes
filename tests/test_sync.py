@@ -162,20 +162,30 @@ class TestPullingChanges:
         (entry,) = (e for e in repository.status() if e.uid == "A")
         assert entry.recipe.ingredients == "2 tsp salt"
 
-    def test_refuses_to_overwrite_a_recipe_changed_on_both_sides(
-        self, repository, account
-    ):
+    def test_merges_changes_to_different_parts_of_a_recipe(self, repository, account):
         Syncer(repository, account).pull()
         edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
         account.edit("A", notes="Now with notes.")
 
         report = Syncer(repository, account).pull()
 
-        (conflict,) = report.conflicts
-        assert conflict.name == "Recipe A"
-        assert "ingredients" in conflict.detail
-        # The user's edit is still there, untouched.
-        assert "2 tsp salt" in repository.paths_by_uid()["A"].read_text()
+        assert actions(report)["Recipe A"] is Action.MERGED
+
+        (entry,) = (e for e in repository.status() if e.uid == "A")
+        assert entry.recipe.ingredients == "2 tsp salt"
+        assert entry.recipe.notes == "Now with notes."
+
+    def test_a_merge_is_left_as_a_local_change_to_push(self, repository, account):
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+        account.edit("A", notes="Now with notes.")
+        Syncer(repository, account).pull()
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Recipe A"] is Action.UPLOADED
+        assert account.recipes["A"]["ingredients"] == "2 tsp salt"
+        assert account.recipes["A"]["notes"] == "Now with notes."
 
     def test_a_cosmetic_local_edit_does_not_block_an_update(self, repository, account):
         Syncer(repository, account).pull()
@@ -572,3 +582,121 @@ class TestRestoreTargets:
 
         assert entry.path is None
         assert matches(entry, "Recipe A")
+
+
+class TestMerging:
+    """Both sides moved. See `paprika_recipes.merge` for the rules."""
+
+    def diverge(self, repository, account, *, local: str, remote: str) -> None:
+        """Change the same recipe's directions on both sides."""
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "Combine.", local)
+        account.edit("A", directions=remote)
+
+    def working(self, repository):
+        (entry,) = (e for e in repository.status() if e.uid == "A")
+
+        return entry
+
+    def test_keeps_both_edits_when_they_do_not_overlap(self, repository, account):
+        account.put(make_recipe("A", directions="One.\nTwo.\nThree."))
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "One.", "One (mine).")
+        account.edit("A", directions="One.\nTwo.\nThree (theirs).")
+
+        Syncer(repository, account).pull()
+
+        assert self.working(repository).recipe.directions == (
+            "One (mine).\nTwo.\nThree (theirs)."
+        )
+
+    def test_marks_an_overlapping_edit_as_a_conflict(self, repository, account):
+        self.diverge(repository, account, local="Mine.", remote="Theirs.")
+
+        report = Syncer(repository, account).pull()
+
+        (conflict,) = report.conflicts
+        assert "directions" in conflict.detail
+        assert "conflict markers" in conflict.detail
+
+    def test_leaves_both_versions_in_the_file(self, repository, account):
+        self.diverge(repository, account, local="Mine.", remote="Theirs.")
+
+        Syncer(repository, account).pull()
+
+        directions = self.working(repository).recipe.directions
+        assert "Mine." in directions
+        assert "Theirs." in directions
+        assert "<<<<<<< yours" in directions
+
+    def test_refuses_to_push_an_unresolved_conflict(self, repository, account):
+        self.diverge(repository, account, local="Mine.", remote="Theirs.")
+        Syncer(repository, account).pull()
+
+        report = Syncer(repository, account).push()
+
+        (conflict,) = report.conflicts
+        assert "unresolved conflict markers" in conflict.detail
+        assert "<<<<<<<" not in account.recipes["A"]["directions"]
+
+    def test_pushes_once_the_markers_are_gone(self, repository, account):
+        self.diverge(repository, account, local="Mine.", remote="Theirs.")
+        Syncer(repository, account).pull()
+
+        path = repository.paths_by_uid()["A"]
+        path.write_text(
+            "\n".join(
+                line
+                for line in path.read_text(encoding="utf-8").split("\n")
+                if not line.startswith(("<<<<<<<", "=======", ">>>>>>>", "Theirs."))
+            ),
+            encoding="utf-8",
+        )
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Recipe A"] is Action.UPLOADED
+        assert account.recipes["A"]["directions"] == "Mine."
+
+    def test_a_conflict_can_be_thrown_away_with_restore(self, repository, account):
+        self.diverge(repository, account, local="Mine.", remote="Theirs.")
+        Syncer(repository, account).pull()
+
+        restore(repository, repository.status())
+
+        assert self.working(repository).recipe.directions == "Theirs."
+        assert self.working(repository).status is Status.UNCHANGED
+
+    def test_refuses_a_recipe_whose_rating_moved_on_both_sides(
+        self, repository, account
+    ):
+        """A rating cannot hold both answers, so nothing is touched."""
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "rating: 0", "rating: 5")
+        account.edit("A", rating=3)
+
+        report = Syncer(repository, account).pull()
+
+        (conflict,) = report.conflicts
+        assert "rating" in conflict.detail
+        assert self.working(repository).recipe.rating == 5
+        assert repository.read_base("A").rating == 0
+
+    def test_takes_the_servers_value_for_a_field_only_it_changed(
+        self, repository, account
+    ):
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+        account.edit("A", rating=3)
+
+        Syncer(repository, account).pull()
+
+        assert self.working(repository).recipe.rating == 3
+        assert self.working(repository).recipe.ingredients == "2 tsp salt"
+
+    def test_changes_nothing_on_a_dry_run(self, repository, account):
+        self.diverge(repository, account, local="Mine.", remote="Theirs.")
+
+        Syncer(repository, account).pull(dry_run=True)
+
+        assert self.working(repository).recipe.directions == "Mine."

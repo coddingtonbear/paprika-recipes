@@ -52,6 +52,7 @@ from .markdown import (
     read_extras,
     render_recipe,
 )
+from .merge import has_conflict_markers
 from .recipe import BaseRecipe
 from .remote import RemoteRecipe
 from .utils import dump_yaml, load_yaml
@@ -111,6 +112,11 @@ class WorkingRecipe:
             # `hash` is the server's token, not ours to diff on.
             if key != "hash" and current[key] != base.get(key)
         )
+
+    @property
+    def conflicted(self) -> bool:
+        """Is a merge still half-resolved in this file?"""
+        return self.recipe is not None and has_conflict_markers(self.recipe)
 
     def has_local_changes(self) -> bool:
         """Is there anything here the server would care about?
@@ -305,6 +311,7 @@ class Repository:
         self,
         recipe: RemoteRecipe,
         existing: dict[str, Path] | None = None,
+        base: RemoteRecipe | None = None,
     ) -> Path:
         """Record a recipe as pulled: write the working file and its base copy.
 
@@ -312,12 +319,18 @@ class Repository:
         it normalises once and uses the result for both. Writing them
         separately risks a base copy that does not render to the file beside
         it, which would make the recipe look permanently modified.
+
+        `base` says what the *server* holds, for the one case where that is
+        not what we are writing to the file: after a merge the file holds the
+        merged result, while the base copy has to hold the server's copy.
+        Otherwise the merge would look like it had already been pushed, and
+        the optimistic-lock check would refuse to push it.
         """
         normalized = normalize_recipe(recipe)
         path = self.path_for(normalized, existing)
 
         self.write_working(normalized, path, self.read_extras(path))
-        self.write_base(normalized)
+        self.write_base(normalize_recipe(base) if base is not None else normalized)
 
         return path
 

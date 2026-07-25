@@ -14,14 +14,16 @@ Three questions decide every recipe, and they are asked in this order:
 2.  *Has the local copy moved?*  `WorkingRecipe.has_local_changes` answers
     this by diffing the file against the base copy, ignoring edits that change
     only how the file is written rather than what it says.
-3.  *Did both move?*  Then we do nothing and report a conflict.
+3.  *Did both move?*  Then we merge.  The base copy is exactly the third
+    input a three-way merge needs, so edits to different parts of a recipe
+    both survive and only genuinely overlapping ones need anyone's attention.
+    See `merge` for what can and cannot be reconciled that way.
 
-That last case could in principle be a three-way merge -- the base copy is
-exactly the merge base one would need -- but a recipe is a handful of prose
-blobs, and a merge that silently interleaved two versions of someone's
-directions would be worse than being told to sort it out yourself.  So we
-refuse and explain, and leave the fix to the person who knows which version
-they meant.
+A merged file is left holding the merge while its base copy holds the
+server's copy, which is what makes the result a local change like any other:
+`status` shows it, `push` sends it, `restore` throws it away.  A merge that
+needed conflict markers is not pushable until the markers are gone -- `push`
+refuses it -- so a half-resolved merge cannot reach the server.
 
 Deletion travels in both directions, but never destructively.  A recipe that
 vanishes from the server is removed from the working directory; a file deleted
@@ -37,8 +39,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from pathlib import Path
 from typing import Protocol
 
+from .merge import has_conflict_markers, merge_recipes
 from .remote import RemoteRecipe
 from .repository import Repository, Status, WorkingRecipe
 
@@ -62,6 +66,8 @@ class Action(Enum):
     ADDED = "added"
     #: Rewritten in the working directory from a newer copy on the server.
     UPDATED = "updated"
+    #: Changed on both sides and reconciled without anyone having to help.
+    MERGED = "merged"
     #: Removed from the working directory; it is no longer on the server.
     REMOVED = "removed"
     #: Uploaded to the server as a recipe it did not have.
@@ -208,13 +214,7 @@ class Syncer:
                     "push to trash it anyway, or `restore` to keep it",
                 )
             elif entry.has_local_changes():
-                report.record(
-                    Action.CONFLICT,
-                    uid,
-                    recipe.name,
-                    "has changed on the server and locally "
-                    f"({', '.join(entry.changed_fields())})",
-                )
+                paths[uid] = self._pull_merge(report, entry, recipe, paths, dry_run)
             else:
                 if not dry_run:
                     paths[uid] = self._repository.store(recipe, paths)
@@ -223,6 +223,56 @@ class Syncer:
         self._pull_removals(report, set(index) - trashed, entries, dry_run)
 
         return report
+
+    def _pull_merge(
+        self,
+        report: SyncReport,
+        entry: WorkingRecipe,
+        remote: RemoteRecipe,
+        paths: dict[str, Path],
+        dry_run: bool,
+    ) -> Path:
+        """Reconcile a recipe that has moved on both sides."""
+        # Guaranteed by the caller: this path is only reached for a recipe
+        # that is present, tracked and locally changed.
+        assert entry.base is not None
+        assert entry.recipe is not None
+        assert entry.path is not None
+
+        merge = merge_recipes(entry.base, entry.recipe, remote)
+
+        if not merge.merged:
+            report.record(
+                Action.CONFLICT,
+                entry.uid,
+                remote.name,
+                f"changed on the server and locally, and {_and(merge.unmergeable)} "
+                "cannot hold both answers; nothing was changed",
+            )
+            return entry.path
+
+        if not dry_run:
+            # The file holds the merge; the base copy holds what the server
+            # holds, so that the merge is a local change we can then push.
+            paths[entry.uid] = self._repository.store(merge.recipe, paths, base=remote)
+
+        if merge.clean:
+            report.record(
+                Action.MERGED,
+                entry.uid,
+                remote.name,
+                "changed on both sides; your edits were kept",
+            )
+        else:
+            report.record(
+                Action.CONFLICT,
+                entry.uid,
+                remote.name,
+                f"{_and(merge.conflicted)} changed on both sides; resolve the "
+                "conflict markers left in the file, then push",
+            )
+
+        return paths[entry.uid]
 
     def _pull_removals(
         self,
@@ -294,6 +344,16 @@ class Syncer:
             return self._push_removal(report, entry, index, dry_run)
 
         name = entry.recipe.name
+
+        if has_conflict_markers(entry.recipe):
+            report.record(
+                Action.CONFLICT,
+                entry.uid,
+                name,
+                "still has unresolved conflict markers in it; edit them out "
+                "(or `restore` it) before pushing",
+            )
+            return False
 
         if entry.status is Status.ADDED:
             if entry.uid in index:
@@ -411,3 +471,13 @@ class Syncer:
     def _notify(self, name: str) -> None:
         if self._on_recipe is not None:
             self._on_recipe(name)
+
+
+def _and(names: Iterable[str]) -> str:
+    """Join names the way a person would say them aloud."""
+    names = list(names)
+
+    if len(names) < 2:
+        return "".join(names)
+
+    return f"{', '.join(names[:-1])} and {names[-1]}"

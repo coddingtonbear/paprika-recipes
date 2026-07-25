@@ -28,6 +28,7 @@ QUIET: Final = "bright_black"
 #: common width so that a report reads as a column rather than a ragged list.
 ACTION_STYLES: Final[dict[Action, tuple[str, str]]] = {
     Action.ADDED: ("added", NEW),
+    Action.MERGED: ("merged", CHANGED),
     Action.CREATED: ("created", NEW),
     Action.RESTORED: ("restored", NEW),
     Action.UPDATED: ("updated", CHANGED),
@@ -55,6 +56,10 @@ PUSH_INTENT: Final[dict[Status, str]] = {
     Status.ADDED: "will be created in Paprika",
     Status.DELETED: "will be moved to Paprika's trash",
 }
+
+#: Shown in place of the ordinary label for a half-resolved merge, which is
+#: the one state `push` will refuse outright.
+CONFLICTED_LABEL: Final = ("conflicted:", NEEDS_ATTENTION)
 
 ACTION_WIDTH: Final = max(len(label) for label, _ in ACTION_STYLES.values())
 STATUS_WIDTH: Final = max(len(label) for label, _ in STATUS_STYLES.values())
@@ -142,7 +147,11 @@ def print_status(console: Console, entries: list[WorkingRecipe]) -> None:
     console.print()
 
     for entry in sorted(interesting, key=lambda entry: entry.name):
-        label, color = STATUS_STYLES[entry.status]
+        if entry.conflicted:
+            label, color = CONFLICTED_LABEL
+        else:
+            label, color = STATUS_STYLES[entry.status]
+
         detail = _status_detail(entry)
 
         console.print(
@@ -180,6 +189,9 @@ def print_unsyncable(console: Console, entries: list[WorkingRecipe]) -> None:
 
 
 def _status_detail(entry: WorkingRecipe) -> str:
+    if entry.conflicted:
+        return "unresolved conflict markers; edit them out, then push"
+
     if entry.status is Status.MODIFIED:
         fields = entry.changed_fields()
         detail = ", ".join(fields) if fields else "formatting only; nothing to push"
