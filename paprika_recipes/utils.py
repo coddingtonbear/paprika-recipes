@@ -1,13 +1,12 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from appdirs import user_config_dir
 
 from .constants import APP_NAME
-from .types import ConfigDict
 
 if TYPE_CHECKING:
     from .recipe import BaseRecipe  # noqa
@@ -71,39 +70,8 @@ def load_yaml(*args: Any) -> Any:
     return yaml.safe_load(*args)
 
 
-def get_config_dir() -> Path:
-    root_path = Path(user_config_dir(APP_NAME, "coddingtonbear"))
-    os.makedirs(root_path, exist_ok=True)
-
-    return root_path
-
-
 def get_cache_dir() -> Path:
     cache_path = Path(user_config_dir(APP_NAME, "coddingtonbear")) / "cache"
     os.makedirs(cache_path, exist_ok=True)
 
     return cache_path
-
-
-def get_default_config_path() -> Path:
-    root_path = get_config_dir()
-    return root_path / "config.yaml"
-
-
-def get_config(path: Path | None = None) -> ConfigDict:
-    if path is None:
-        path = get_default_config_path()
-
-    if not os.path.isfile(path):
-        return {}
-
-    with open(path) as inf:
-        return cast(ConfigDict, load_yaml(inf))
-
-
-def save_config(data: ConfigDict, path: Path | None = None) -> None:
-    if path is None:
-        path = get_default_config_path()
-
-    with open(path, "w") as outf:
-        dump_yaml(data, outf)

@@ -8,7 +8,6 @@ from ..command import BaseCommand
 from ..exceptions import PaprikaUserError
 from ..markdown import find_lossy_fields, normalize_recipe, render_recipe
 from ..repository import unique_path
-from ..types import ConfigDict
 
 
 class Command(BaseCommand):
@@ -17,7 +16,7 @@ class Command(BaseCommand):
         return """Extracts a .paprikarecipes archive to a directory."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("archive_path", type=Path)
         parser.add_argument("export_path", type=Path)
 

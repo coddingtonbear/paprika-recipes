@@ -7,7 +7,6 @@ from ..archive import Archive, ArchiveRecipe, attach_photo, identify
 from ..command import BaseCommand
 from ..exceptions import PaprikaUserError
 from ..repository import read_recipe, recipe_files
-from ..types import ConfigDict
 
 
 class Command(BaseCommand):
@@ -17,7 +16,7 @@ class Command(BaseCommand):
         of recipes."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("export_path", type=Path)
         parser.add_argument("archive_path", type=Path)
 

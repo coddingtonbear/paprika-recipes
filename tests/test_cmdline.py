@@ -1,8 +1,10 @@
+import argparse
 from typing import Any
 
 import pytest
 
 from paprika_recipes.cmdline import exit_code_for, run
+from paprika_recipes.commands import pull
 from paprika_recipes.constants import ExitCode
 from paprika_recipes.exceptions import (
     AuthenticationError,
@@ -11,7 +13,7 @@ from paprika_recipes.exceptions import (
     RequestError,
 )
 from paprika_recipes.remote import RemoteRecipe
-from paprika_recipes.repository import Repository
+from paprika_recipes.repository import Repository, RepositoryConfig
 
 
 def make_recipe(**overrides) -> RemoteRecipe:
@@ -90,3 +92,29 @@ class TestRunning:
         assert ExitCode.USAGE not in {
             code for code in ExitCode if code is not ExitCode.USAGE
         }
+
+
+class TestNamingAnAccount:
+    def test_clone_will_not_guess(self):
+        """There is no default account to fall back on, by design."""
+        with pytest.raises(SystemExit) as exit_info:
+            run(["clone"])
+
+        assert exit_info.value.code == ExitCode.USAGE
+
+    def test_a_sync_uses_the_account_its_directory_was_cloned_from(self, cloned):
+        cloned.save_config(RepositoryConfig(account="me@example.com"))
+
+        command = pull.Command(argparse.Namespace(account="", directory=cloned.root))
+
+        assert command.get_account() == "me@example.com"
+
+    def test_an_account_named_on_the_command_line_wins(self, cloned):
+        """Which is how a directory is copied into another account."""
+        cloned.save_config(RepositoryConfig(account="me@example.com"))
+
+        command = pull.Command(
+            argparse.Namespace(account="you@example.com", directory=cloned.root)
+        )
+
+        assert command.get_account() == "you@example.com"

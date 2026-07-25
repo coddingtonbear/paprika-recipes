@@ -6,7 +6,6 @@ from ..command import RepositoryCommand
 from ..constants import ExitCode
 from ..reporting import print_status
 from ..repository import Status
-from ..types import ConfigDict
 
 
 class Command(RepositoryCommand):
@@ -15,7 +14,7 @@ class Command(RepositoryCommand):
         return """Shows which recipe files have changed since the last sync."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--exit-code",
             action="store_true",

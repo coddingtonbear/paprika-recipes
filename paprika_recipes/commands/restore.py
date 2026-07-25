@@ -9,7 +9,6 @@ from ..exceptions import PaprikaUserError
 from ..reporting import QUIET, print_report
 from ..repository import Status, WorkingRecipe
 from ..sync import Action, restore
-from ..types import ConfigDict
 
 
 def matches(entry: WorkingRecipe, target: str) -> bool:
@@ -34,7 +33,7 @@ class Command(RepositoryCommand):
         return """Undoes local changes to recipes, including deleting them."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "recipes",
             nargs="*",

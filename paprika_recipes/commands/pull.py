@@ -6,7 +6,6 @@ from ..command import RepositorySyncCommand
 from ..constants import ExitCode
 from ..reporting import print_report, recipe_progress
 from ..sync import Syncer
-from ..types import ConfigDict
 
 
 class Command(RepositorySyncCommand):
@@ -15,7 +14,7 @@ class Command(RepositorySyncCommand):
         return """Brings a directory of recipe files up to date with paprika."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--dry-run",
             action="store_true",

@@ -15,8 +15,7 @@ from .credentials import ask_for_account, authenticate
 from .exceptions import PaprikaProgrammingError
 from .remote import Remote
 from .repository import Repository
-from .types import ConfigDict
-from .utils import get_cache_dir, save_config
+from .utils import get_cache_dir
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +44,8 @@ def get_installed_commands() -> dict[str, type[BaseCommand]]:
 
 
 class BaseCommand(metaclass=ABCMeta):
-    def __init__(self, config: ConfigDict, options: argparse.Namespace):
+    def __init__(self, options: argparse.Namespace):
         self._options: argparse.Namespace = options
-        self._config: ConfigDict = config
         super().__init__()
 
     @property
@@ -55,27 +53,18 @@ class BaseCommand(metaclass=ABCMeta):
         """Provides options provided at the command-line."""
         return self._options
 
-    @property
-    def config(self) -> ConfigDict:
-        """Returns saved configuration as a dictionary."""
-        return self._config
-
     @classmethod
     def get_help(cls) -> str:
         """Retuurns help text for this function."""
         return ""
 
     @classmethod
-    def add_arguments(  # noqa: B027
-        cls, parser: argparse.ArgumentParser, config: ConfigDict
-    ) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:  # noqa: B027
         """Allows adding additional command-line arguments."""
 
     @classmethod
-    def _add_arguments(
-        cls, parser: argparse.ArgumentParser, config: ConfigDict
-    ) -> None:
-        cls.add_arguments(parser, config)
+    def _add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        cls.add_arguments(parser)
 
     @abstractmethod
     def handle(self) -> ExitCode | None:
@@ -116,19 +105,8 @@ class RemoteCommand(BaseCommand):
         return self._cache
 
     @classmethod
-    def _add_arguments(
-        cls, parser: argparse.ArgumentParser, config: ConfigDict
-    ) -> None:
+    def _add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         """Allows adding additional command-line arguments."""
-        parser.add_argument(
-            "--account",
-            type=str,
-            default=None,
-            help=(
-                "the paprika account to talk to; defaults to the account this "
-                "directory was cloned from, or to your default account."
-            ),
-        )
         parser.add_argument(
             "--domain",
             type=str,
@@ -155,14 +133,18 @@ class RemoteCommand(BaseCommand):
             default=Path(get_cache_dir()),
             help=f"directory to store cache files within; default: {get_cache_dir()}",
         )
-        super()._add_arguments(parser, config)
+        super()._add_arguments(parser)
 
     def get_account(self) -> str:
-        return self._account or self.options.account or self.default_account()
+        """Which account to talk to.
 
-    def default_account(self) -> str:
-        """The account to fall back on when none was named."""
-        return self.config.get("default_account", "")
+        There is deliberately no fallback to a remembered default. An account
+        is either named on the command line or recorded in the directory being
+        synced, and both of those say plainly which recipes are about to be
+        touched; a machine-wide default does not, and quietly decides for you
+        which of your accounts a `clone` belongs to.
+        """
+        return self._account or getattr(self.options, "account", "") or ""
 
     def get_domain(self) -> str:
         return self.options.domain or DEFAULT_DOMAIN
@@ -173,25 +155,7 @@ class RemoteCommand(BaseCommand):
 
         self._account = self.get_account() or ask_for_account(console)
 
-        remote = authenticate(
-            self._account, self.get_domain(), self.get_cache(), console
-        )
-
-        self.remember_account(self._account)
-
-        return remote
-
-    def remember_account(self, account: str) -> None:
-        """Remember the first account we are told about, so we stop asking.
-
-        Only the first: someone with two accounts should not find their
-        default quietly reassigned by whichever one they used last.
-        """
-        if self.config.get("default_account"):
-            return
-
-        self.config["default_account"] = account
-        save_config(self.config)
+        return authenticate(self._account, self.get_domain(), self.get_cache(), console)
 
 
 class RepositoryCommand(BaseCommand):
@@ -200,9 +164,7 @@ class RepositoryCommand(BaseCommand):
     _repository: Repository | None = None
 
     @classmethod
-    def _add_arguments(
-        cls, parser: argparse.ArgumentParser, config: ConfigDict
-    ) -> None:
+    def _add_arguments(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--directory",
             type=Path,
@@ -212,7 +174,7 @@ class RepositoryCommand(BaseCommand):
                 "directory or the nearest parent of it that is one."
             ),
         )
-        super()._add_arguments(parser, config)
+        super()._add_arguments(parser)
 
     @property
     def repository(self) -> Repository:
@@ -226,13 +188,28 @@ class RepositorySyncCommand(RepositoryCommand, RemoteCommand):
     """A command that syncs a directory of recipe files against an account.
 
     The directory remembers which account it was cloned from, so that syncing
-    it does the same thing wherever it is run from and whatever the machine's
-    default account happens to be.  An explicit `--account` still wins, which
-    is what makes it possible to copy a directory into another account.
+    it does the same thing wherever it is run from.  That is the only place an
+    account is ever remembered: there is nothing machine-wide to disagree with
+    it.  An explicit `--account` still wins, which is what makes it possible to
+    copy a directory into another account.
     """
 
-    def default_account(self) -> str:
-        return self.repository.config.account or super().default_account()
+    @classmethod
+    def _add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--account",
+            type=str,
+            default="",
+            help=(
+                "the paprika account to talk to; defaults to the account this "
+                "directory was cloned from. Naming a different one is how a "
+                "directory is copied into another account."
+            ),
+        )
+        super()._add_arguments(parser)
+
+    def get_account(self) -> str:
+        return super().get_account() or self.repository.config.account
 
     def get_domain(self) -> str:
         return self.options.domain or self.repository.config.domain

@@ -8,7 +8,6 @@ from rich.traceback import install as enable_rich_traceback
 from .command import get_installed_commands
 from .constants import ExitCode
 from .exceptions import AuthenticationError, PaprikaError, PaprikaUserError
-from .utils import get_config
 
 #: Which exit code each kind of failure earns, most specific first.
 EXIT_CODES: Final[tuple[tuple[type[Exception], ExitCode], ...]] = (
@@ -41,7 +40,6 @@ def main() -> None:
 def run(argv: list[str] | None = None) -> ExitCode:
     enable_rich_traceback()
     commands = get_installed_commands()
-    config = get_config()
 
     parser = ArgumentParser()
     parser.add_argument("--debugger", action="store_true")
@@ -50,7 +48,7 @@ def run(argv: list[str] | None = None) -> ExitCode:
 
     for cmd_name, cmd_class in commands.items():
         subparser = subparsers.add_parser(cmd_name, help=cmd_class.get_help() or None)
-        cmd_class._add_arguments(subparser, config)
+        cmd_class._add_arguments(subparser)
 
     args = parser.parse_args(argv)
 
@@ -65,7 +63,7 @@ def run(argv: list[str] | None = None) -> ExitCode:
     console = Console(stderr=True)
 
     try:
-        return commands[args.command](config, args).handle() or ExitCode.SUCCESS
+        return commands[args.command](args).handle() or ExitCode.SUCCESS
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted.[/yellow]")
 

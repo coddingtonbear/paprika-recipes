@@ -58,7 +58,7 @@ def entry(**overrides) -> dict:
 
 
 def run(module, **options) -> None:
-    module.Command({}, argparse.Namespace(**options)).handle()
+    module.Command(argparse.Namespace(**options)).handle()
 
 
 @pytest.fixture

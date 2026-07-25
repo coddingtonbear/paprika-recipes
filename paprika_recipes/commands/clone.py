@@ -9,7 +9,6 @@ from ..exceptions import PaprikaUserError
 from ..reporting import print_report, recipe_progress
 from ..repository import REPOSITORY_DIRNAME, Repository, RepositoryConfig
 from ..sync import Syncer
-from ..types import ConfigDict
 
 
 class Command(RemoteCommand):
@@ -18,7 +17,16 @@ class Command(RemoteCommand):
         return """Creates a directory of recipe files from a paprika account."""
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser, config: ConfigDict) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        # Named first and required, the way git wants the thing being cloned
+        # named first. Which account a directory of recipes belongs to is not
+        # a detail to be inferred: it decides what is about to be written and
+        # where everything in it will be sent from then on.
+        parser.add_argument(
+            "account",
+            type=str,
+            help="the e-mail address of the paprika account to clone.",
+        )
         parser.add_argument(
             "directory",
             type=Path,

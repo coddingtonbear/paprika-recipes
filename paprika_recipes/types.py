@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABCMeta, abstractmethod, abstractproperty
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .recipe import BaseRecipe
@@ -27,7 +27,3 @@ class RecipeManager(metaclass=ABCMeta):
 
     @abstractmethod
     def count(self) -> int: ...
-
-
-class ConfigDict(TypedDict, total=False):
-    default_account: str
