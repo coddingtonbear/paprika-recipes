@@ -67,6 +67,8 @@ class RemoteAccount(Protocol):
 
     def download_photo(self, url: str) -> bytes: ...
 
+    def photo_download_url(self, uid: str) -> str: ...
+
     def upload_recipe(
         self, recipe: RemoteRecipe, photo_upload: bytes | None = None
     ) -> RemoteRecipe: ...
@@ -737,14 +739,11 @@ class Syncer:
             ):
                 return
 
-            if not recipe.photo_url:
-                raise PaprikaError("the server did not say where to fetch it from")
-
             repository.write_photo(
                 recipe.uid,
                 recipe.photo,
                 recipe.photo_hash,
-                self._remote.download_photo(recipe.photo_url),
+                self._download_photo(recipe),
             )
         except (PaprikaError, PaprikaUserError) as e:
             report.record(
@@ -753,6 +752,29 @@ class Syncer:
                 recipe.name,
                 f"its photo could not be downloaded: {e}",
             )
+
+    def _download_photo(self, recipe: RemoteRecipe) -> bytes:
+        """Fetch the bytes behind a recipe's photo, renewing its link if stale.
+
+        The `photo_url` a recipe carries is signed object storage that
+        expires within hours, and the copy in hand has often been sitting
+        longer than that -- in the response cache, or in a base copy healing
+        an attachment days after it was pulled.  So the remembered link is
+        only the first try; when it fails, or there never was one, the
+        server is asked to sign a fresh one and that gets the last word.
+        """
+        if recipe.photo_url:
+            try:
+                return self._remote.download_photo(recipe.photo_url)
+            except PaprikaError:
+                pass
+
+        url = self._remote.photo_download_url(recipe.uid)
+
+        if not url:
+            raise PaprikaError("the server did not say where to fetch it from")
+
+        return self._remote.download_photo(url)
 
     # -- Plumbing -----------------------------------------------------------
 

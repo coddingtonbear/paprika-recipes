@@ -137,6 +137,19 @@ class Remote(RecipeManager):
             recipe.uid: recipe.hash for recipe in self._get_remote_recipe_identifiers()
         }
 
+    def photo_download_url(self, uid: str) -> str:
+        """A freshly signed download link for a recipe's photo.
+
+        The `photo_url` in a recipe response is signed object storage with
+        an expiry measured in hours, so any copy of it that has been sitting
+        anywhere -- the response cache, a base copy -- may no longer open.
+        Asking for the recipe again, deliberately around the cache, is how
+        a new signature is minted.  Empty when the recipe has no photo.
+        """
+        response = self._request("get", f"/api/v2/sync/recipe/{uid}/")
+
+        return response.json().get("result", {}).get("photo_url") or ""
+
     def download_photo(self, url: str) -> bytes:
         """Fetch the bytes of a recipe's photo.
 

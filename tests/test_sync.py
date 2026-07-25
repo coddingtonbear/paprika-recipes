@@ -28,6 +28,7 @@ class FakeAccount:
         self.notified = 0
         self.index_requests = 0
         self.photo_downloads = 0
+        self.url_refreshes = 0
         self.edits = 0
 
         for recipe in recipes:
@@ -50,6 +51,11 @@ class FakeAccount:
             return self.photos[url]
         except KeyError:
             raise RequestError(f"there is no photo at {url}")
+
+    def photo_download_url(self, uid: str) -> str:
+        self.url_refreshes += 1
+
+        return self.recipes[uid].get("photo_url") or ""
 
     def upload_recipe(
         self, recipe: RemoteRecipe, photo_upload: bytes | None = None
@@ -96,6 +102,19 @@ class FakeAccount:
 
     def remove(self, uid: str) -> None:
         del self.recipes[uid]
+
+    def resign_photo_urls(self) -> None:
+        """Do what time does to signed links: the remembered URL stops
+        working, and a fresh fetch of the recipe hands out a new one."""
+        for data in self.recipes.values():
+            url = data.get("photo_url")
+
+            if not url or url not in self.photos:
+                continue
+
+            fresh = f"{url}&resigned={self.edits}"
+            self.photos[fresh] = self.photos.pop(url)
+            data["photo_url"] = fresh
 
     def give_photo(
         self, uid: str, data: bytes = b"jpeg bytes", version: int = 1
@@ -987,6 +1006,31 @@ class TestPhotosComeDownWithAPull:
         Syncer(repository, account).pull()
 
         assert (repository.attachments_dir / "A-1.jpg").is_file()
+
+    def test_a_stale_download_link_is_renewed(self, repository, account):
+        """Photo links are signed and expire within hours, so the one a base
+        copy remembers is only a first try, never the last word."""
+        account.give_photo("A", b"the picture")
+        Syncer(repository, account).pull()
+        (repository.attachments_dir / "A-1.jpg").unlink()
+        account.resign_photo_urls()
+
+        report = Syncer(repository, account).pull()
+
+        assert not report.of(Action.SKIPPED)
+        assert (repository.attachments_dir / "A-1.jpg").read_bytes() == b"the picture"
+        assert account.url_refreshes == 1
+
+    def test_no_link_is_renewed_unless_something_needs_downloading(
+        self, repository, account
+    ):
+        account.give_photo("A")
+        Syncer(repository, account).pull()
+        account.resign_photo_urls()
+
+        Syncer(repository, account).pull()
+
+        assert account.url_refreshes == 0
 
     def test_a_replaced_photo_replaces_the_attachment(self, repository, account):
         account.give_photo("A", b"old", version=1)
