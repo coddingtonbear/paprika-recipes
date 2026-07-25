@@ -5,8 +5,9 @@
 ```bash
 # First: clone your recipes into a folder somewhere
 $ paprika-recipes clone you@example.com ~/recipes
+$ cd recipes
 # Second: make your changes to whatever recipe using whatever editor
-$ vim ~/recipes/Khachapuri.md
+$ vim Khachapuri.md
 # Finally: push up your changes to Paprika
 $ paprika-recipes push
 ```
