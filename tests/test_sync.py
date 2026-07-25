@@ -6,7 +6,7 @@ import pytest
 from paprika_recipes.commands.restore import matches
 from paprika_recipes.exceptions import PaprikaUserError
 from paprika_recipes.remote import RemoteRecipe
-from paprika_recipes.repository import Repository, Status
+from paprika_recipes.repository import Repository, RepositoryConfig, Status
 from paprika_recipes.sync import Action, Syncer, restore
 
 
@@ -823,3 +823,28 @@ class TestRefusingToActOnADirectoryItCannotRead:
 
         assert actions(report)["Mine"] is Action.CREATED
         assert actions(report)["Recipe A"] is Action.TRASHED
+
+
+class TestSyncingADirectoryWithAFrontmatterPrefix:
+    @pytest.fixture
+    def repository(self, tmp_path) -> Repository:
+        return Repository.initialize(
+            tmp_path, RepositoryConfig(frontmatter_prefix="paprika_")
+        )
+
+    def test_pulls_and_pushes_as_usual(self, repository, account):
+        Syncer(repository, account).pull()
+        edit_file(repository, "A", "1 tsp salt", "2 tsp salt")
+
+        report = Syncer(repository, account).push()
+
+        assert actions(report)["Recipe A"] is Action.UPLOADED
+        assert account.recipes["A"]["ingredients"] == "2 tsp salt"
+
+    def test_refuses_a_file_written_without_the_prefix(self, repository, account):
+        """A file from an unprefixed clone, dropped into a prefixed one."""
+        Syncer(repository, account).pull()
+        write_untracked(repository, "Mine", uid="SOME-UID")
+
+        with pytest.raises(PaprikaUserError, match="frontmatter_prefix"):
+            Syncer(repository, account).push()

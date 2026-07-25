@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from paprika_recipes.exceptions import PaprikaUserError
-from paprika_recipes.markdown import render_recipe
+from paprika_recipes.markdown import DocumentFormat, render_recipe
 from paprika_recipes.remote import RemoteRecipe
 from paprika_recipes.repository import (
     Repository,
@@ -342,12 +342,10 @@ class TestWriteSafety:
     def test_refuses_to_write_a_recipe_it_could_not_read_back(
         self, repository, monkeypatch
     ):
-        import paprika_recipes.repository as repository_module
-
         monkeypatch.setattr(
-            repository_module,
+            DocumentFormat,
             "find_lossy_fields",
-            lambda recipe, extras=None: ["directions"],
+            lambda self, recipe, extras=None: ["directions"],
         )
 
         with pytest.raises(PaprikaUserError, match="could not be read back"):
@@ -491,3 +489,52 @@ class TestAdopting:
 
         assert entry.uid == "A"
         assert not entry.untracked
+
+
+class TestADirectoryWithAFrontmatterPrefix:
+    @pytest.fixture
+    def repository(self, tmp_path) -> Repository:
+        return Repository.initialize(
+            tmp_path, RepositoryConfig(frontmatter_prefix="paprika_")
+        )
+
+    def test_writes_its_files_with_the_prefix(self, repository):
+        path = pull(repository, make_recipe(rating=4))
+
+        assert "paprika_rating: 4" in path.read_text(encoding="utf-8")
+
+    def test_reads_them_back_unchanged(self, repository):
+        pull(repository, make_recipe(rating=4))
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+        assert entry.recipe.rating == 4
+
+    def test_leaves_a_vaults_own_field_out_of_the_recipe(self, repository):
+        path = pull(repository, make_recipe(rating=4))
+        add_frontmatter(path, "rating: 1")
+
+        (entry,) = repository.status()
+
+        assert entry.recipe.rating == 4
+        assert entry.extras.frontmatter == {"rating": 1}
+        assert entry.changed_fields() == []
+
+    def test_keeps_the_prefix_out_of_the_base_copies(self, repository):
+        """Those are ours; nothing else ever reads them."""
+        recipe = make_recipe()
+        pull(repository, recipe)
+
+        stored = repository.base_path_for(recipe.uid).read_text(encoding="utf-8")
+
+        assert '"uid"' in stored
+        assert "paprika_" not in stored
+
+    def test_survives_being_reopened(self, repository):
+        """The prefix has to come back off disk, not out of the clone command."""
+        pull(repository, make_recipe(rating=4))
+
+        (entry,) = Repository(repository.root).status()
+
+        assert entry.status is Status.UNCHANGED

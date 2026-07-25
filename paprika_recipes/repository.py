@@ -44,14 +44,11 @@ from typing import Any, Final, TypeVar
 from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaProgrammingError, PaprikaUserError
 from .markdown import (
+    DocumentFormat,
     Extras,
     documents_differ,
-    find_lossy_fields,
     normalize_recipe,
-    parse_document,
     parse_recipe,
-    read_extras,
-    render_recipe,
 )
 from .merge import has_conflict_markers
 from .recipe import BaseRecipe
@@ -149,25 +146,36 @@ class WorkingRecipe:
 class RepositoryConfig:
     account: str = ""
     domain: str = DEFAULT_DOMAIN
+    #: Prepended to every frontmatter field we own; see `DocumentFormat`.
+    #: Chosen when the directory is cloned, because changing it afterwards
+    #: would mean rewriting every file in it.
+    frontmatter_prefix: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RepositoryConfig:
         return cls(
             account=data.get("account", ""),
             domain=data.get("domain") or DEFAULT_DOMAIN,
+            frontmatter_prefix=data.get("frontmatter_prefix") or "",
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return {"account": self.account, "domain": self.domain}
+        return {
+            "account": self.account,
+            "domain": self.domain,
+            "frontmatter_prefix": self.frontmatter_prefix,
+        }
 
 
 class Repository:
     _root: Path
     _config: RepositoryConfig | None
+    _format: DocumentFormat | None
 
     def __init__(self, root: Path):
         self._root = root
         self._config = None
+        self._format = None
 
         if not self.repository_dir.is_dir():
             raise PaprikaUserError(
@@ -239,6 +247,15 @@ class Repository:
             dump_yaml(config.as_dict(), outf)
 
         self._config = config
+        self._format = None
+
+    @property
+    def format(self) -> DocumentFormat:
+        """How this directory's files are spelled; see `DocumentFormat`."""
+        if self._format is None:
+            self._format = DocumentFormat(self.config.frontmatter_prefix)
+
+        return self._format
 
     # -- The base (pristine) copies -----------------------------------------
 
@@ -275,7 +292,7 @@ class Repository:
         yield from recipe_files(self._root)
 
     def read_working(self, path: Path) -> RemoteRecipe:
-        return read_recipe(path, RemoteRecipe)
+        return read_recipe(path, RemoteRecipe, self.format)
 
     def read_document(self, path: Path) -> tuple[RemoteRecipe, Extras]:
         """Read a working file as both a recipe and everything else it holds."""
@@ -283,7 +300,7 @@ class Repository:
             content = inf.read()
 
         try:
-            return parse_document(content, RemoteRecipe)
+            return self.format.parse(content, RemoteRecipe)
         except PaprikaUserError as e:
             raise PaprikaUserError(f"{path}: {e}")
 
@@ -293,7 +310,7 @@ class Repository:
             return Extras()
 
         with open(path, encoding="utf-8") as inf:
-            return read_extras(inf.read(), RemoteRecipe)
+            return self.format.read_extras(inf.read(), RemoteRecipe)
 
     def write_working(
         self,
@@ -301,7 +318,7 @@ class Repository:
         path: Path | None = None,
         extras: Extras | None = None,
     ) -> Path:
-        lossy = find_lossy_fields(recipe, extras)
+        lossy = self.format.find_lossy_fields(recipe, extras)
         if lossy:
             raise PaprikaUserError(
                 f"Refusing to write {recipe.name!r}: {', '.join(lossy)} "
@@ -315,7 +332,7 @@ class Repository:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, "w", encoding="utf-8") as outf:
-            outf.write(render_recipe(recipe, extras))
+            outf.write(self.format.render(recipe, extras))
 
         return path
 
@@ -463,7 +480,8 @@ class Repository:
         # that their `tags:` or their own `## ` section is not mistaken for an
         # edit to the recipe.
         return documents_differ(
-            content, render_recipe(base, read_extras(content, RemoteRecipe))
+            content,
+            self.format.render(base, self.format.read_extras(content, RemoteRecipe)),
         )
 
     def status(self) -> list[WorkingRecipe]:
@@ -534,13 +552,18 @@ def recipe_files(root: Path) -> Iterator[Path]:
         yield path
 
 
-def read_recipe(path: Path, recipe_class: type[T]) -> T:
+def read_recipe(
+    path: Path, recipe_class: type[T], document_format: DocumentFormat | None = None
+) -> T:
     """Read a recipe from a file, blaming the file if it cannot be read."""
     with open(path, encoding="utf-8") as inf:
         content = inf.read()
 
     try:
-        return parse_recipe(content, recipe_class)
+        if document_format is None:
+            return parse_recipe(content, recipe_class)
+
+        return document_format.parse_recipe(content, recipe_class)
     except PaprikaUserError as e:
         raise PaprikaUserError(f"{path}: {e}")
 

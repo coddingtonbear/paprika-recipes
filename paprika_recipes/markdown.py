@@ -116,16 +116,149 @@ class Extras:
         return ", ".join([*headings, *keys])
 
 
+@dataclass(frozen=True)
+class DocumentFormat:
+    """How a recipe is spelled in a file.
+
+    A recipe file is meant to be a good citizen of whatever directory it lands
+    in, and in a note vault that means our frontmatter is sharing a namespace
+    with the vault's own conventions.  `rating:`, `source:`, `categories:` and
+    `created:` are all things a vault may already mean something else by, so a
+    directory can be cloned with a prefix -- `paprika_rating:`, and so on.
+
+    The prefix is strict in both directions.  With one configured, an
+    *unprefixed* frontmatter field belongs to the user: it is carried through
+    and never uploaded.  Accepting unprefixed fields as a fallback would
+    defeat the whole point, because the reason to set a prefix is that the
+    vault already has a `rating:` of its own -- and reading that as the
+    recipe's rating would upload it.
+
+    A prefixed field we do not recognise is kept as the user's too, rather
+    than discarded: it costs nothing and it means a file written by a later
+    version of this program loses nothing by being read by an earlier one.
+    """
+
+    frontmatter_prefix: str = ""
+
+    def render(self, recipe: BaseRecipe, extras: Extras | None = None) -> str:
+        """Render a recipe as a markdown document with YAML frontmatter."""
+        extras = extras if extras is not None else Extras()
+        data = recipe.as_dict()
+
+        frontmatter: dict[str, Any] = dict(extras.frontmatter)
+        frontmatter.update(
+            {
+                f"{self.frontmatter_prefix}{key}": value
+                for key, value in data.items()
+                if key not in BODY_FIELDS
+            }
+        )
+
+        return _render(data, frontmatter, extras)
+
+    def parse(self, content: str, recipe_class: type[T]) -> tuple[T, Extras]:
+        """Read a document as both a recipe and whatever else its file holds."""
+        frontmatter, body = _split_frontmatter(content)
+        fields, sections = _parse_body(body)
+        known = {field.name for field in recipe_class.get_all_fields()}
+
+        ours: dict[str, Any] = {}
+        theirs: dict[str, Any] = {}
+
+        for key, value in frontmatter.items():
+            name = self._field_for(key, known)
+
+            if name is None:
+                theirs[key] = value
+            else:
+                ours[name] = value
+
+        data: dict[str, Any] = dict(ours)
+        data.update(fields)
+
+        # A file that does not name a uid does not have one.  Without this the
+        # dataclass's default would invent a *different* uid every time the
+        # same file was read, which makes "this recipe has no identity yet"
+        # indistinguishable from "this recipe has one" -- and silently so,
+        # since nothing downstream can tell an invented uid from a real one.
+        data.setdefault(UID_FIELD, "")
+
+        return recipe_class.from_dict(data), Extras(
+            frontmatter=theirs, sections=sections
+        )
+
+    def parse_recipe(self, content: str, recipe_class: type[T]) -> T:
+        """Read the recipe out of a document produced by `render`."""
+        return self.parse(content, recipe_class)[0]
+
+    def read_extras(self, content: str, recipe_class: type[BaseRecipe]) -> Extras:
+        """Read the parts of a document that are not the recipe."""
+        return self.parse(content, recipe_class)[1]
+
+    def find_lossy_fields(
+        self, recipe: BaseRecipe, extras: Extras | None = None
+    ) -> list[str]:
+        """Return the parts of a recipe that do not survive a round-trip.
+
+        Under normal circumstances this is empty; it is non-empty when a recipe
+        contains something our format cannot express unambiguously.  Callers
+        can use it to refuse to write a file they would not be able to read
+        back correctly.
+        """
+        rendered = self.render(recipe, extras)
+        reparsed = self.parse_recipe(rendered, type(recipe))
+
+        before = recipe.as_dict()
+        after = reparsed.as_dict()
+
+        lossy = sorted(key for key in before if before[key] != after.get(key))
+
+        if extras is not None and self.read_extras(rendered, type(recipe)) != extras:
+            lossy.append("the sections you added yourself")
+
+        return lossy
+
+    def _field_for(self, key: str, known: set[str]) -> str | None:
+        """Which recipe field a frontmatter key holds, if it holds one at all."""
+        if not key.startswith(self.frontmatter_prefix):
+            return None
+
+        name = key[len(self.frontmatter_prefix) :]
+
+        return name if name in known else None
+
+
+#: What a directory cloned without a prefix uses, and what anything with no
+#: directory to ask -- an archive, say -- has to assume.
+DEFAULT_FORMAT: Final = DocumentFormat()
+
+
 def render_recipe(recipe: BaseRecipe, extras: Extras | None = None) -> str:
-    """Render a recipe as a markdown document with YAML frontmatter."""
-    extras = extras if extras is not None else Extras()
-    data = recipe.as_dict()
+    """Render a recipe as a markdown document, in the unprefixed format."""
+    return DEFAULT_FORMAT.render(recipe, extras)
 
-    frontmatter: dict[str, Any] = dict(extras.frontmatter)
-    frontmatter.update(
-        {key: value for key, value in data.items() if key not in BODY_FIELDS}
-    )
 
+def parse_document(content: str, recipe_class: type[T]) -> tuple[T, Extras]:
+    """Read a document in the unprefixed format."""
+    return DEFAULT_FORMAT.parse(content, recipe_class)
+
+
+def parse_recipe(content: str, recipe_class: type[T]) -> T:
+    """Read the recipe out of a document in the unprefixed format."""
+    return DEFAULT_FORMAT.parse_recipe(content, recipe_class)
+
+
+def read_extras(content: str, recipe_class: type[BaseRecipe]) -> Extras:
+    """Read the parts of an unprefixed document that are not the recipe."""
+    return DEFAULT_FORMAT.read_extras(content, recipe_class)
+
+
+def find_lossy_fields(recipe: BaseRecipe, extras: Extras | None = None) -> list[str]:
+    """Round-trip an unprefixed document; see `DocumentFormat`."""
+    return DEFAULT_FORMAT.find_lossy_fields(recipe, extras)
+
+
+def _render(data: dict[str, Any], frontmatter: dict[str, Any], extras: Extras) -> str:
     out = io.StringIO()
     out.write(f"{FRONTMATTER_DELIMITER}\n")
     dump_yaml(frontmatter, out)
@@ -158,40 +291,6 @@ def render_recipe(recipe: BaseRecipe, extras: Extras | None = None) -> str:
             out.write(f"\n{section.text}\n")
 
     return out.getvalue()
-
-
-def parse_document(content: str, recipe_class: type[T]) -> tuple[T, Extras]:
-    """Read a document as both a recipe and whatever else its file holds."""
-    frontmatter, body = _split_frontmatter(content)
-    fields, sections = _parse_body(body)
-    known = {field.name for field in recipe_class.get_all_fields()}
-
-    data: dict[str, Any] = dict(frontmatter)
-    data.update(fields)
-
-    # A file that does not name a uid does not have one.  Without this the
-    # dataclass's default would invent a *different* uid every time the same
-    # file was read, which makes "this recipe has no identity yet"
-    # indistinguishable from "this recipe has one" -- and silently so, since
-    # nothing downstream can tell an invented uid from a real one.
-    data.setdefault(UID_FIELD, "")
-
-    return recipe_class.from_dict(data), Extras(
-        frontmatter={
-            key: value for key, value in frontmatter.items() if key not in known
-        },
-        sections=sections,
-    )
-
-
-def parse_recipe(content: str, recipe_class: type[T]) -> T:
-    """Read the recipe out of a document produced by `render_recipe`."""
-    return parse_document(content, recipe_class)[0]
-
-
-def read_extras(content: str, recipe_class: type[BaseRecipe]) -> Extras:
-    """Read the parts of a document that are not the recipe."""
-    return parse_document(content, recipe_class)[1]
 
 
 def foreign_uid_key(extras: Extras) -> str:
@@ -268,28 +367,6 @@ def normalize_recipe(recipe: T) -> T:
             changes[field_name] = normalized
 
     return replace(recipe, **changes) if changes else recipe
-
-
-def find_lossy_fields(recipe: BaseRecipe, extras: Extras | None = None) -> list[str]:
-    """Return the parts of a recipe that do not survive a render/parse round-trip.
-
-    Under normal circumstances this is empty; it is non-empty when a recipe
-    contains something our format cannot express unambiguously.  Callers can
-    use it to refuse to write a file they would not be able to read back
-    correctly.
-    """
-    rendered = render_recipe(recipe, extras)
-    reparsed = parse_recipe(rendered, type(recipe))
-
-    before = recipe.as_dict()
-    after = reparsed.as_dict()
-
-    lossy = sorted(key for key in before if before[key] != after.get(key))
-
-    if extras is not None and read_extras(rendered, type(recipe)) != extras:
-        lossy.append("the sections you added yourself")
-
-    return lossy
 
 
 def _render_field(field_name: str, value: str) -> str:

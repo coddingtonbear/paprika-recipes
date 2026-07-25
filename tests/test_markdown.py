@@ -2,6 +2,7 @@ import pytest
 
 from paprika_recipes.exceptions import PaprikaUserError
 from paprika_recipes.markdown import (
+    DocumentFormat,
     Extras,
     ExtraSection,
     documents_differ,
@@ -447,3 +448,93 @@ class TestSpottingAForeignUid:
 
     def test_says_nothing_about_an_empty_file(self):
         assert foreign_uid_key(Extras()) == ""
+
+
+class TestAFrontmatterPrefix:
+    format = DocumentFormat("paprika_")
+
+    def recipe(self, **overrides) -> BaseRecipe:
+        data: dict = {"name": "Khachapuri", "uid": "ABC", "rating": 4}
+        data.update(overrides)
+
+        return BaseRecipe(**data)
+
+    def test_prefixes_the_fields_it_writes(self):
+        rendered = self.format.render(self.recipe())
+
+        assert "paprika_rating: 4" in rendered
+        assert "paprika_uid: ABC" in rendered
+
+    def test_leaves_the_body_alone(self):
+        """Only frontmatter can collide; the title and sections are ours."""
+        rendered = self.format.render(self.recipe(ingredients="1 tsp salt"))
+
+        assert "# Khachapuri" in rendered
+        assert "## Ingredients" in rendered
+
+    def test_reads_back_what_it_wrote(self):
+        recipe = self.recipe(ingredients="1 tsp salt")
+
+        parsed = self.format.parse_recipe(self.format.render(recipe), BaseRecipe)
+
+        assert parsed.rating == 4
+        assert parsed.uid == "ABC"
+        assert parsed.ingredients == "1 tsp salt"
+
+    def test_treats_an_unprefixed_field_as_the_users_own(self):
+        """The entire point: a vault's `rating:` is not the recipe's rating."""
+        recipe, extras = self.format.parse(
+            "---\nrating: 1\npaprika_rating: 4\n---\n\n# Khachapuri\n", BaseRecipe
+        )
+
+        assert recipe.rating == 4
+        assert extras.frontmatter == {"rating": 1}
+
+    def test_never_reads_an_unprefixed_field_as_a_recipes(self):
+        recipe, extras = self.format.parse(
+            "---\nrating: 1\nsource: my brain\n---\n\n# Khachapuri\n", BaseRecipe
+        )
+
+        assert recipe.rating == 0
+        assert recipe.source == ""
+        assert extras.frontmatter == {"rating": 1, "source": "my brain"}
+
+    def test_keeps_a_prefixed_field_it_does_not_know(self):
+        """A file from a later version should lose nothing to an earlier one."""
+        _, extras = self.format.parse(
+            "---\npaprika_bogus: 1\n---\n\n# Khachapuri\n", BaseRecipe
+        )
+
+        assert extras.frontmatter == {"paprika_bogus": 1}
+
+    def test_carries_the_users_frontmatter_through(self):
+        rendered = self.format.render(
+            self.recipe(), Extras(frontmatter={"tags": ["dinner"]})
+        )
+
+        assert "tags:" in rendered
+        assert self.format.read_extras(rendered, BaseRecipe).frontmatter == {
+            "tags": ["dinner"]
+        }
+
+    def test_an_unprefixed_file_reads_as_having_no_uid(self):
+        """Which is what makes a mismatched prefix detectable rather than silent."""
+        recipe, extras = self.format.parse(
+            "---\nuid: ABC\n---\n\n# Khachapuri\n", BaseRecipe
+        )
+
+        assert recipe.uid == ""
+        assert foreign_uid_key(extras) == "uid"
+
+
+class TestNoPrefixAtAll:
+    def test_is_what_the_default_format_does(self):
+        assert DocumentFormat().frontmatter_prefix == ""
+
+    def test_reads_exactly_as_before(self):
+        recipe, extras = DocumentFormat().parse(
+            "---\nrating: 4\ntags: [dinner]\n---\n\n# Khachapuri\n", BaseRecipe
+        )
+
+        assert recipe.rating == 4
+        assert extras.frontmatter == {"tags": ["dinner"]}
