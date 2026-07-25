@@ -77,7 +77,7 @@ Both `pull` and `push` accept `--dry-run` if you would rather see the whole plan
 
 ### Writing a recipe yourself
 
-Write a markdown file with a `# Title` and whatever sections you want, and `push` will create it in Paprika. It gets a `uid:` written into its frontmatter at that moment, and is an ordinary tracked recipe from then on.
+Write a markdown file with a `# Title` and whatever sections you want, and `push` will create it in Paprika. It gets a `uid:` written into its frontmatter at that moment, and is an ordinary tracked recipe from then on. If you embed a photo from `attachments/` beneath the title, that goes up with it.
 
 ### Scripting
 
@@ -149,13 +149,25 @@ paprika-recipes restore ./Breads/Focaccia.md   # or by file
 paprika-recipes restore --all                  # or everything
 ```
 
+That includes a photo: restoring puts the embed back the way it arrived, and if you had swapped the image itself out, the substitute is discarded so that the next `pull` can put the original back — the one thing restore cannot do without the network is re-download it on the spot.
+
 The one thing `restore` will not do is delete a recipe you created yourself and never pulled, since there is nothing to put such a file back to.
 
 **Reformatting a file is not an edit.** Rewrapping a list or reordering the frontmatter changes the file without changing the recipe, and nothing gets uploaded for it.
 
-**Photos come along.** A recipe's photo is downloaded into an `attachments/` folder beside your files, and the recipe embeds it with ordinary markdown image markup directly beneath its title — so it shows up in your editor, your vault, and anywhere else markdown renders. If you tidy the attachment away by hand, the next `pull` quietly puts it back.
+**Photos sync, in both directions.** A recipe's photo is downloaded into an `attachments/` folder beside your files, and the recipe embeds it with ordinary markdown image markup directly beneath its title — so it shows up in your editor, your vault, and anywhere else markdown renders. If you tidy the attachment away by hand, the next `pull` quietly puts it back.
 
-For now the photo itself belongs to the app: deleting the embed line or writing your own does not remove or add a photo in Paprika, and `push` will say so rather than let you think it did. Adding and removing photos from the directory is planned; the embed is already the way you will do it.
+The embed line is also how you change the photo. To give a recipe one, drop the image into `attachments/` and write the embed yourself, spelled however you like:
+
+```markdown
+# Khachapuri
+
+![fresh out of the oven](attachments/my dinner.jpg)
+```
+
+`push` then uploads it exactly the way the app would — a square thumbnail onto the recipe, the full picture into its photo gallery — and renames your file to the name the server chose, rewriting the embed to match. Deleting the embed line removes the photo from Paprika on the next push, and swapping the image file out for different bytes replaces it, even though the file's text never changed; `status` reports every one of these as `modified: (photo)` so nothing leaves without your having seen it. Anything reasonable is accepted — a PNG becomes a JPEG on the way up, a sideways phone photo is stood upright, and anything larger than the 2048-pixel bound the app itself observes is scaled down to it.
+
+One honest caveat: the copy in *your* directory keeps its full size, but what another clone downloads is the app's own copy of the recipe photo, which is the thumbnail. The full picture still lives in the recipe's gallery in the app.
 
 **Anything you add to a file is left alone.** If these files live in a note vault, you will likely add `tags:` or `aliases:` to the frontmatter, and quite possibly a section of your own:
 

@@ -49,6 +49,7 @@ from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaProgrammingError, PaprikaUserError
 from .markdown import (
     ATTACHMENTS_DIRNAME,
+    PHOTO_FIELD,
     DocumentFormat,
     Extras,
     documents_differ,
@@ -92,6 +93,11 @@ class WorkingRecipe:
     base: RemoteRecipe | None
     #: What the file holds that Paprika has nowhere to put.
     extras: Extras = field(default_factory=Extras)
+    #: The embed still names the same photo, but the bytes in `attachments/`
+    #: are no longer the ones we downloaded: the user swapped the image out
+    #: in place.  Invisible to a text comparison of the file, so it is
+    #: detected separately; see `Repository._photo_replaced`.
+    photo_replaced: bool = False
 
     @property
     def name(self) -> str:
@@ -110,15 +116,20 @@ class WorkingRecipe:
         current = self.recipe.as_dict()
         base = self.base.as_dict()
 
-        return sorted(
+        changed = {
             key
             for key in current
-            # `hash` is the server's token, and the photo is the server's
-            # photo: editing the embed line cannot yet add or remove one, so
-            # a difference there is not an edit anyone can push.  See
+            # `hash` is the server's token, not an edit, and the photo's
+            # bookkeeping never enters the file to be edited.  See
             # `merge.IGNORED_FIELDS`, which is the same judgement.
             if key not in IGNORED_FIELDS and current[key] != base.get(key)
-        )
+        }
+
+        if self.photo_replaced:
+            # The embed reads the same, but the image behind it does not.
+            changed.add(PHOTO_FIELD)
+
+        return sorted(changed)
 
     @property
     def untracked(self) -> bool:
@@ -339,6 +350,18 @@ class Repository:
 
         return self.attachments_dir / photo
 
+    def read_attachment(self, photo: str) -> bytes:
+        """The bytes of a photo in `attachments/`, for sending to the server."""
+        path = self.attachment_path(photo)
+
+        if not path.is_file():
+            raise PaprikaUserError(
+                f"there is no {ATTACHMENTS_DIRNAME}/{photo} for its embed to "
+                "point at"
+            )
+
+        return path.read_bytes()
+
     def read_photo_state(self, uid: str) -> PhotoState | None:
         path = self._photo_state_path(uid)
 
@@ -398,6 +421,32 @@ class Repository:
 
     def _photo_state_path(self, uid: str) -> Path:
         return self.photo_state_dir / f"{uid}.json"
+
+    def _photo_replaced(self, uid: str, recipe: RemoteRecipe) -> bool:
+        """Has the user swapped out the image behind an unchanged embed?
+
+        Only asked about an attachment we downloaded ourselves: when the
+        embed names anything else, the *field* has changed and ordinary
+        change detection already sees it.  Comparing a digest of the file
+        against the one recorded at download time is what Paprika's own
+        `photo_hash` cannot do for us, since it digests the thumbnail the
+        server holds rather than any bytes we have.
+        """
+        state = self.read_photo_state(uid)
+
+        if state is None or not state.photo or state.photo != recipe.photo:
+            return False
+
+        try:
+            path = self.attachment_path(state.photo)
+        except PaprikaUserError:
+            return False
+
+        if not path.is_file():
+            # Gone is not replaced; a missing attachment is `pull`'s to heal.
+            return False
+
+        return hashlib.sha256(path.read_bytes()).hexdigest() != state.content_hash
 
     # -- The working directory ----------------------------------------------
 
@@ -490,6 +539,14 @@ class Repository:
                 f"There is no record of having pulled the recipe {uid}, "
                 "so there is nothing to restore it to."
             )
+
+        if self._photo_replaced(uid, base):
+            # An image swapped out in place is a local change like any other,
+            # so restoring discards it too.  We cannot re-download it from
+            # here -- restore works without the network -- but removing the
+            # file is enough: the state file still says which photo belongs
+            # there, so the next pull sees it missing and puts it back.
+            self.attachment_path(base.photo).unlink(missing_ok=True)
 
         return self.store(base)
 
@@ -634,10 +691,13 @@ class Repository:
                 continue
 
             recipe, extras = self.read_document(path)
+            photo_replaced = self._photo_replaced(uid, recipe)
 
             if uid not in base_uids:
                 status = Status.ADDED
-            elif self.is_modified(uid, path):
+            elif photo_replaced or self.is_modified(uid, path):
+                # A replaced image is a modification the file's text cannot
+                # show, so it is asked about before the text is.
                 status = Status.MODIFIED
             else:
                 status = Status.UNCHANGED
@@ -650,6 +710,7 @@ class Repository:
                     recipe=recipe,
                     base=base,
                     extras=extras,
+                    photo_replaced=photo_replaced,
                 )
             )
 

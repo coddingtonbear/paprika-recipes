@@ -79,8 +79,11 @@ PHOTO_FIELDS: Final = frozenset({PHOTO_FIELD}) | HIDDEN_FIELDS
 
 #: A line that is nothing but an image embed pointing into `attachments/`.
 #: This is the one line shape besides a `## ` heading that belongs to the
-#: format rather than to the recipe's own text; see `_escape_prose`.
-PHOTO_EMBED: Final = re.compile(rf"^!\[[^\]]*\]\({ATTACHMENTS_DIRNAME}/([^)]+)\)\s*$")
+#: format rather than to the recipe's own text; see `_escape_prose`.  The
+#: target runs greedily to the line's final `)` so that a filename someone
+#: wrote by hand -- parentheses, spaces and all -- still reads as the photo
+#: it plainly is; our own renderer percent-encodes all of that anyway.
+PHOTO_EMBED: Final = re.compile(rf"^!\[[^\]]*\]\({ATTACHMENTS_DIRNAME}/(.+)\)\s*$")
 
 #: Written as `## ` sections, in this order.  Every recipe field not named
 #: here or above is written to the frontmatter instead.

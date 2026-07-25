@@ -590,7 +590,7 @@ class TestPhotoStorage:
 
 
 class TestPhotoChangeDetection:
-    """Until photos can be edited locally, the embed is not an edit."""
+    """The embed line, and the bytes behind it, are edits like any other."""
 
     def photographed(self, **overrides):
         data = {
@@ -610,7 +610,7 @@ class TestPhotoChangeDetection:
         assert entry.status is Status.UNCHANGED
         assert "](attachments/A-1.jpg)" in entry.path.read_text(encoding="utf-8")
 
-    def test_a_deleted_embed_is_not_a_local_change(self, repository):
+    def test_a_deleted_embed_is_a_photo_removal(self, repository):
         path = pull(repository, self.photographed())
         path.write_text(
             "\n".join(
@@ -624,8 +624,51 @@ class TestPhotoChangeDetection:
         (entry,) = repository.status()
 
         assert entry.status is Status.MODIFIED
+        assert entry.changed_fields() == ["photo"]
+        assert entry.has_local_changes()
+
+    def test_the_hidden_bookkeeping_is_not_an_edit(self, repository):
+        """A file cannot carry `photo_hash` and friends, so their absence on
+        the parse side must never read as a change somebody made."""
+        pull(repository, self.photographed(photo_hash="hash-1"))
+
+        (entry,) = repository.status()
+
         assert entry.changed_fields() == []
-        assert not entry.has_local_changes()
+
+    def test_swapped_bytes_read_as_a_modified_photo(self, repository):
+        recipe = self.photographed()
+        pull(repository, recipe)
+        repository.write_photo(recipe.uid, "A-1.jpg", "hash-1", b"downloaded")
+
+        (repository.attachments_dir / "A-1.jpg").write_bytes(b"the user's own")
+
+        (entry,) = repository.status()
+        assert entry.status is Status.MODIFIED
+        assert entry.photo_replaced
+        assert entry.changed_fields() == ["photo"]
+
+    def test_untouched_bytes_do_not(self, repository):
+        recipe = self.photographed()
+        pull(repository, recipe)
+        repository.write_photo(recipe.uid, "A-1.jpg", "hash-1", b"downloaded")
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+        assert not entry.photo_replaced
+
+    def test_a_missing_attachment_is_not_a_replacement(self, repository):
+        """Gone is `pull`'s to heal, not an edit to push."""
+        recipe = self.photographed()
+        pull(repository, recipe)
+        repository.write_photo(recipe.uid, "A-1.jpg", "hash-1", b"downloaded")
+
+        (repository.attachments_dir / "A-1.jpg").unlink()
+
+        (entry,) = repository.status()
+        assert entry.status is Status.UNCHANGED
+        assert not entry.photo_replaced
 
     def test_the_hidden_bookkeeping_never_reaches_the_file(self, repository):
         path = pull(repository, self.photographed(photo_hash="secret-hash"))

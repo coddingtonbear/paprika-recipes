@@ -1,10 +1,12 @@
+import gzip
+import json
 from unittest.mock import Mock
 
 import pytest
 
 from paprika_recipes.constants import APP_NAME, PAPRIKA_APP_USER_AGENT, USER_AGENT
 from paprika_recipes.exceptions import RequestError
-from paprika_recipes.remote import Remote
+from paprika_recipes.remote import Remote, RemotePhoto, RemoteRecipe
 
 
 def build_remote(response: Mock) -> Remote:
@@ -115,3 +117,105 @@ class TestLogin:
 
         kwargs = remote._session.request.call_args.kwargs
         assert "Authorization" not in kwargs.get("headers", {})
+
+
+class TestPhotoWireFormat:
+    """The upload spellings observed from the app's own traffic."""
+
+    def authenticated(self, json_value) -> Remote:
+        remote = build_remote(build_response(json_value))
+        remote._bearer_token = "a-token"
+
+        return remote
+
+    def sent_files(self, remote: Remote) -> dict:
+        return remote._session.request.call_args_list[0].kwargs["files"]
+
+    def sent_data(self, remote: Remote) -> dict:
+        return json.loads(gzip.decompress(self.sent_files(remote)["data"]))
+
+    def test_an_absent_photo_is_spelled_null(self):
+        """The app sends `null`, never an empty string, for a recipe with no
+        photo -- and never sends `photo_url` at all."""
+        remote = self.authenticated({"result": {"uid": "A"}})
+
+        remote.upload_recipe(RemoteRecipe(uid="A", name="Test"))
+
+        data = self.sent_data(remote)
+        assert data["photo"] is None
+        assert data["photo_hash"] is None
+        assert data["photo_large"] is None
+        assert "photo_url" not in data
+
+    def test_a_new_photos_bytes_ride_along_with_the_recipe(self):
+        remote = self.authenticated({"result": {"uid": "A"}})
+        recipe = RemoteRecipe(
+            uid="A", name="Test", photo="NEW.jpg", photo_hash="DIGEST"
+        )
+
+        remote.upload_recipe(recipe, photo_upload=b"thumbnail bytes")
+
+        files = self.sent_files(remote)
+        assert files["photo_upload"] == ("NEW.jpg", b"thumbnail bytes", "image/jpeg")
+        assert self.sent_data(remote)["photo"] == "NEW.jpg"
+
+    def test_a_gallery_photo_uploads_the_apps_own_fields(self):
+        remote = self.authenticated({"result": True})
+        photo = RemotePhoto(
+            uid="G", recipe_uid="A", filename="G.jpg", name="1", hash="DIGEST"
+        )
+
+        remote.upload_photo(photo, b"image bytes")
+
+        method, url = remote._session.request.call_args.args
+        assert (method, url) == (
+            "post",
+            "https://www.paprikaapp.com/api/v2/sync/photo/G/",
+        )
+
+        data = self.sent_data(remote)
+        assert set(data) == {
+            "uid",
+            "recipe_uid",
+            "filename",
+            "name",
+            "order_flag",
+            "hash",
+            "deleted",
+        }
+        assert data["deleted"] is False
+        assert self.sent_files(remote)["photo_upload"] == (
+            "G.jpg",
+            b"image bytes",
+            "image/jpeg",
+        )
+
+    def test_a_gallery_deletion_sends_no_image(self):
+        remote = self.authenticated({"result": True})
+        photo = RemotePhoto(uid="G", recipe_uid="A", filename="G.jpg", deleted=True)
+
+        remote.upload_photo(photo)
+
+        assert "photo_upload" not in self.sent_files(remote)
+        assert self.sent_data(remote)["deleted"] is True
+
+    def test_get_photos_reads_the_gallery(self):
+        remote = self.authenticated(
+            {
+                "result": [
+                    {
+                        "uid": "G",
+                        "recipe_uid": "A",
+                        "filename": "G.jpg",
+                        "photo_url": "https://example.com/G.jpg",
+                        "a_field_we_have_never_heard_of": 7,
+                    }
+                ]
+            }
+        )
+
+        (photo,) = remote.get_photos()
+
+        assert photo.uid == "G"
+        assert photo.recipe_uid == "A"
+        assert photo.photo_url == "https://example.com/G.jpg"

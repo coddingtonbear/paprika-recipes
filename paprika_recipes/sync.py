@@ -36,6 +36,8 @@ is a complete recipe and is not discarded until the trashing succeeds.
 
 from __future__ import annotations
 
+import hashlib
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -43,9 +45,10 @@ from pathlib import Path
 from typing import Protocol
 
 from .exceptions import PaprikaError, PaprikaUserError
-from .markdown import PHOTO_FIELDS, foreign_uid_key
-from .merge import has_conflict_markers, merge_recipes
-from .remote import RemoteRecipe
+from .images import prepare_photo
+from .markdown import ATTACHMENTS_DIRNAME, PHOTO_FIELD, PHOTO_FIELDS, foreign_uid_key
+from .merge import Merge, has_conflict_markers, merge_recipes
+from .remote import RemotePhoto, RemoteRecipe
 from .repository import (
     CONFIG_FILENAME,
     REPOSITORY_DIRNAME,
@@ -64,7 +67,13 @@ class RemoteAccount(Protocol):
 
     def download_photo(self, url: str) -> bytes: ...
 
-    def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe: ...
+    def upload_recipe(
+        self, recipe: RemoteRecipe, photo_upload: bytes | None = None
+    ) -> RemoteRecipe: ...
+
+    def upload_photo(self, photo: RemotePhoto, image: bytes | None = None) -> None: ...
+
+    def get_photos(self) -> list[RemotePhoto]: ...
 
     def notify(self) -> None: ...
 
@@ -316,6 +325,13 @@ class Syncer:
 
         merge = merge_recipes(entry.base, entry.recipe, remote)
 
+        if merge.merged and entry.photo_replaced and remote.photo != entry.base.photo:
+            # The user swapped the image behind the embed while the server
+            # got a different photo altogether.  Field-level merging cannot
+            # see the local half of that -- the embed line reads unchanged --
+            # so the collision is refused here instead.
+            merge = Merge(None, merge.conflicted, (*merge.unmergeable, PHOTO_FIELD))
+
         if not merge.merged:
             report.record(
                 Action.CONFLICT,
@@ -480,27 +496,34 @@ class Syncer:
 
         action = Action.CREATED if entry.status is Status.ADDED else Action.UPLOADED
 
-        # What goes up is the file's recipe with the server's own photo put
-        # back; see `_keep_servers_photo`.
-        upload = _keep_servers_photo(recipe, entry.base)
+        try:
+            plan = self._plan_photo(entry, recipe)
+        except PaprikaUserError as e:
+            report.record(Action.SKIPPED, entry.uid, name, f"was not pushed: {e}")
+            return ""
 
         if not dry_run:
             self._notify(name)
-            self._remote.upload_recipe(upload)
+            self._remote.upload_recipe(plan.upload, photo_upload=plan.thumbnail)
 
-        # Uploading is the moment to say what is not being uploaded: the rest
-        # of the file stays behind, and someone who wrote it there deserves to
-        # be told rather than left to discover it.
+            if plan.gallery is not None:
+                self._remote.upload_photo(plan.gallery, plan.full)
+
+            if plan.drop_gallery:
+                self._drop_gallery_photo(plan.drop_gallery)
+
+            self._settle_photo(entry.uid, plan)
+
+        # Uploading is the moment to say what else moved, or pointedly did
+        # not: the rest of the file stays behind, and someone who wrote it
+        # there deserves to be told rather than left to discover it.
         notes = []
         kept = entry.extras.describe()
 
         if kept:
             notes.append(f"{kept} stayed in your file")
-        if upload.photo != recipe.photo:
-            notes.append(
-                "its photo stayed as the server has it; adding or removing "
-                "photos from here is not supported yet"
-            )
+        if plan.note:
+            notes.append(plan.note)
 
         report.record(action, entry.uid, name, "; ".join(notes))
 
@@ -573,6 +596,114 @@ class Syncer:
 
     # -- Photos ---------------------------------------------------------------
 
+    def _plan_photo(self, entry: WorkingRecipe, recipe: RemoteRecipe) -> _PhotoPlan:
+        """Decide what a push means for one recipe's photo.
+
+        The embed line in the file is the whole interface: an embed matching
+        the base copy means the photo is not what is being pushed, a missing
+        one means the photo is being removed, and any other embed -- or the
+        same embed over replaced bytes -- means a photo is going up.
+
+        Raises `PaprikaUserError` when the embed points at something that is
+        not there or not an image, so that the recipe can be reported rather
+        than half-pushed.
+        """
+        server = entry.base if entry.base is not None else RemoteRecipe(uid=recipe.uid)
+
+        if recipe.photo == server.photo and not entry.photo_replaced:
+            # Not the photo's turn: ship the server's own photo fields back
+            # unaltered, so that nothing else about this push can touch it.
+            return _PhotoPlan(
+                upload=replace(
+                    recipe, **{name: getattr(server, name) for name in PHOTO_FIELDS}
+                )
+            )
+
+        if not recipe.photo:
+            return _PhotoPlan(
+                upload=replace(
+                    recipe, photo="", photo_hash="", photo_large=None, photo_url=None
+                ),
+                remove=True,
+                drop_gallery=server.photo_large or "",
+                note="its photo was removed from Paprika too",
+            )
+
+        data = self._repository.read_attachment(recipe.photo)
+
+        try:
+            prepared = prepare_photo(data)
+        except PaprikaUserError as e:
+            raise PaprikaUserError(f"{ATTACHMENTS_DIRNAME}/{recipe.photo} {e}")
+
+        # Two derived images under two fresh names, exactly as the app would
+        # have uploaded them; see `images` for the shape of each.
+        photo_name = _photo_filename()
+        gallery_name = _photo_filename()
+
+        return _PhotoPlan(
+            upload=replace(
+                recipe,
+                photo=photo_name,
+                photo_hash=hashlib.sha256(prepared.thumbnail).hexdigest().upper(),
+                photo_large=gallery_name,
+                photo_url=None,
+            ),
+            thumbnail=prepared.thumbnail,
+            full=prepared.full,
+            gallery=RemotePhoto(
+                uid=gallery_name.removesuffix(".jpg"),
+                recipe_uid=recipe.uid,
+                filename=gallery_name,
+                name="1",
+                hash=hashlib.sha256(prepared.full).hexdigest().upper(),
+            ),
+            drop_gallery=server.photo_large or "",
+            source=recipe.photo,
+            note=(
+                f"its photo went to Paprika too, and {ATTACHMENTS_DIRNAME}/"
+                f"{recipe.photo} is now {ATTACHMENTS_DIRNAME}/{photo_name}"
+            ),
+        )
+
+    def _settle_photo(self, uid: str, plan: _PhotoPlan) -> None:
+        """Make the working directory agree with the photo that was pushed.
+
+        A photo that went up gets its attachment re-recorded under the name
+        the server now knows it by.  What is kept locally is the full-size
+        image -- the picture itself -- rather than the thumbnail whose bytes
+        the recipe's `photo` field technically names; the state file's
+        `content_hash` records which bytes those were, which is exactly what
+        lets the next replacement be noticed.  The file it was pushed from
+        is then removed: this is the rename it looks like, not a deletion.
+        """
+        if plan.full is not None:
+            self._repository.write_photo(
+                uid, plan.upload.photo, plan.upload.photo_hash, plan.full
+            )
+
+            if plan.source and plan.source != plan.upload.photo:
+                self._repository.attachment_path(plan.source).unlink(missing_ok=True)
+        elif plan.remove:
+            self._repository.drop_photo(uid)
+
+    def _drop_gallery_photo(self, filename: str) -> None:
+        """Take down the gallery copy of a photo a push has discarded.
+
+        A recipe's `photo_large` names its gallery twin but says nothing
+        else about it, so the gallery is asked and the record it holds is
+        sent back with `deleted` set -- the closest thing the photo endpoint
+        has to a delete verb.  Nothing here is worth failing a push over:
+        the recipe itself has already gone up, and an orphaned gallery photo
+        costs nothing worse than storage on Paprika's side.
+        """
+        try:
+            for photo in self._remote.get_photos():
+                if photo.filename == filename and not photo.deleted:
+                    self._remote.upload_photo(replace(photo, deleted=True))
+        except PaprikaError:
+            pass
+
     def _ensure_photo(self, report: SyncReport, recipe: RemoteRecipe) -> None:
         """Bring a recipe's photo down into `attachments/`, if it is not there.
 
@@ -636,20 +767,32 @@ class Syncer:
             self._on_recipe(name)
 
 
-def _keep_servers_photo(
-    recipe: RemoteRecipe, base: RemoteRecipe | None
-) -> RemoteRecipe:
-    """The recipe as uploaded: the file's fields, but the server's photo.
+@dataclass(frozen=True)
+class _PhotoPlan:
+    """Everything one push needs to do about one recipe's photo."""
 
-    A photo cannot yet be added or removed by editing a file, and the file is
-    parsed into the very recipe we upload -- so without this, deleting the
-    embed line in passing would quietly clear the photo on the server, and an
-    embed in a hand-written recipe would name a photo whose bytes were never
-    uploaded.
-    """
-    source = base if base is not None else RemoteRecipe(uid=recipe.uid)
+    #: The recipe as it goes up: the file's fields, with the photo fields
+    #: resolved to what the server should hold afterwards.
+    upload: RemoteRecipe
+    #: The thumbnail sent alongside the recipe, when a photo is going up.
+    thumbnail: bytes | None = None
+    #: The picture itself, bound for the gallery, when a photo is going up.
+    full: bytes | None = None
+    #: The gallery entry that will own `full`.
+    gallery: RemotePhoto | None = None
+    #: Whether the photo is being removed outright.
+    remove: bool = False
+    #: A gallery filename to take down, when a photo is going away.
+    drop_gallery: str = ""
+    #: The attachment name the file's embed held before the push.
+    source: str = ""
+    #: What to tell the user about all of the above.
+    note: str = ""
 
-    return replace(recipe, **{name: getattr(source, name) for name in PHOTO_FIELDS})
+
+def _photo_filename() -> str:
+    """A fresh server-side name for an image, in the style the app uses."""
+    return f"{str(uuid.uuid4()).upper()}.jpg"
 
 
 def _and(names: Iterable[str]) -> str:

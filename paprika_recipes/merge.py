@@ -28,7 +28,7 @@ from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any, Final, TypeVar
 
-from .markdown import BODY_FIELDS, PHOTO_FIELD, PHOTO_FIELDS, TITLE_FIELD
+from .markdown import BODY_FIELDS, HIDDEN_FIELDS, PHOTO_FIELD, TITLE_FIELD
 
 if TYPE_CHECKING:
     from .recipe import BaseRecipe
@@ -38,17 +38,20 @@ T = TypeVar("T", bound="BaseRecipe")
 #: A range of the base text that one side replaced, and what with.
 _Change = tuple[int, int, list[str]]
 
-#: Fields we can merge line by line.  The name is deliberately not among them:
-#: it is a single line that becomes the document's title, and a conflict
-#: marker in a title is worse than being asked to choose.
+#: Fields we can merge line by line.  The name and the photo are deliberately
+#: not among them: each is a single line -- the document's title, the embed
+#: beneath it -- and a conflict marker inside either is worse than being
+#: asked to choose.
 MERGEABLE_FIELDS: Final = frozenset(BODY_FIELDS - {TITLE_FIELD, PHOTO_FIELD})
 
-#: Never diffed on either side.  `hash` is the server's token, not a value.
-#: The photo fields are the server's too, for now: editing the embed in a
-#: file cannot yet add or remove a photo, so a merge always keeps whatever
-#: photo the server has -- which falls out of skipping them here, since the
-#: merged recipe is built on top of the remote copy.
-IGNORED_FIELDS: Final = frozenset({"hash"}) | PHOTO_FIELDS
+#: Never diffed on either side.  `hash` is the server's token, not a value,
+#: and the photo's bookkeeping (`photo_hash` and friends) never enters a
+#: file at all, so its absence on the parse side is not a change anyone
+#: made.  The photo itself is *not* ignored: its embed line is an editable
+#: field like any other, one that happens to name an image instead of
+#: holding prose -- which also makes it unmergeable when both sides change
+#: it, exactly like the rating.
+IGNORED_FIELDS: Final = frozenset({"hash"}) | HIDDEN_FIELDS
 
 OURS: Final = "<<<<<<< yours"
 SEPARATOR: Final = "======="

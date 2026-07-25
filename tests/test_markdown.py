@@ -199,7 +199,7 @@ class TestPhotoEmbeds:
         assert parse_recipe(rendered, BaseRecipe).photo == ""
 
     def test_a_hand_written_embed_reads_as_the_photo(self):
-        """And this one will eventually mean "add this photo"."""
+        """This is how a photo is added: write the line, name the file."""
         content = (
             "---\nuid: ABC\n---\n\n# Mine\n\n"
             "![whatever alt text](attachments/my-pic.jpg)\n\n"
@@ -209,6 +209,20 @@ class TestPhotoEmbeds:
         recipe = parse_recipe(content, BaseRecipe)
 
         assert recipe.photo == "my-pic.jpg"
+        assert recipe.description == "My own recipe."
+
+    def test_a_hand_written_embed_may_spell_its_name_raw(self):
+        """Nobody hand-writing a link percent-encodes it, and a filename
+        full of spaces and parentheses is still plainly the photo."""
+        content = (
+            "---\nuid: ABC\n---\n\n# Mine\n\n"
+            "![mine](attachments/My Dinner (1).jpg)\n\n"
+            "My own recipe.\n"
+        )
+
+        recipe = parse_recipe(content, BaseRecipe)
+
+        assert recipe.photo == "My Dinner (1).jpg"
         assert recipe.description == "My own recipe."
 
     def test_the_embed_never_leaks_into_the_description(self):

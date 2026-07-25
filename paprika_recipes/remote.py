@@ -1,5 +1,7 @@
+import gzip
+import json
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, fields
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -20,6 +22,41 @@ class RemoteRecipe(BaseRecipe):
     on_grocery_list: str | None = None
     photo_url: str | None = None
     scale: str | None = None
+
+
+@dataclass
+class RemotePhoto:
+    """A photo in a recipe's gallery, as Paprika's photo sync endpoint sees it.
+
+    This is a different thing from the recipe's own `photo` field.  That one
+    is a square thumbnail carried on the recipe itself; these are the
+    pictures the app shows on a recipe's photos page, each an object of its
+    own.  When the app adds a photo to a recipe it uploads both -- the
+    thumbnail onto the recipe, and the picture itself into the gallery, with
+    the recipe's `photo_large` naming the gallery copy.
+
+    The field names and their spelling are the wire format.
+    """
+
+    uid: str = ""
+    recipe_uid: str = ""
+    filename: str = ""
+    #: The photo's display name; the app numbers them ("1", "2", ...).
+    name: str = ""
+    order_flag: int = 0
+    #: An opaque sync token, like a recipe's `hash`: the server keeps
+    #: whatever the client sends, and other clients use it to notice change.
+    hash: str = ""
+    deleted: bool = False
+    #: Where to download the image from; only ever present in responses.
+    photo_url: str | None = field(default=None, compare=False)
+
+    def as_upload(self) -> bytes:
+        """The gzipped JSON document the photo endpoint expects."""
+        data = asdict(self)
+        del data["photo_url"]
+
+        return gzip.compress(json.dumps(data).encode("utf-8"))
 
 
 class Remote(RecipeManager):
@@ -115,16 +152,47 @@ class Remote(RecipeManager):
 
         return response.content
 
-    def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
+    def upload_recipe(
+        self, recipe: RemoteRecipe, photo_upload: bytes | None = None
+    ) -> RemoteRecipe:
+        """Send a recipe to the server, optionally with a new photo's bytes.
+
+        `photo_upload` is the image for the recipe's `photo` field: when the
+        photo is changing, the app sends its bytes in the same request that
+        names it, and so do we.  The caller is expected to have set `photo`
+        to the image's filename and `photo_hash` to a digest of exactly
+        these bytes.
+        """
         recipe.update_hash()
 
-        self._request(
-            "post",
-            f"/api/v2/sync/recipe/{recipe.uid}/",
-            files={"data": recipe.as_paprikarecipe()},
-        )
+        files: dict = {"data": _recipe_upload(recipe)}
+
+        if photo_upload is not None:
+            files["photo_upload"] = (recipe.photo, photo_upload, "image/jpeg")
+
+        self._request("post", f"/api/v2/sync/recipe/{recipe.uid}/", files=files)
 
         return self.get_recipe_by_id(recipe.uid, recipe.hash)
+
+    def upload_photo(self, photo: RemotePhoto, image: bytes | None = None) -> None:
+        """Send a gallery photo to the server -- or, with `deleted` set, take
+        one down; a deletion carries no image bytes."""
+        files: dict = {"data": photo.as_upload()}
+
+        if image is not None:
+            files["photo_upload"] = (photo.filename, image, "image/jpeg")
+
+        self._request("post", f"/api/v2/sync/photo/{photo.uid}/", files=files)
+
+    def get_photos(self) -> list[RemotePhoto]:
+        """Every gallery photo the account holds, across all its recipes."""
+        response = self._request("get", "/api/v2/sync/photos/")
+        known = {field.name for field in fields(RemotePhoto)}
+
+        return [
+            RemotePhoto(**{key: value for key, value in item.items() if key in known})
+            for item in response.json().get("result", [])
+        ]
 
     def add_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         return self.upload_recipe(recipe)
@@ -198,3 +266,20 @@ class Remote(RecipeManager):
 
     def __str__(self):
         return f"Remote Paprika Recipes ({self.count()} recipes)"
+
+
+def _recipe_upload(recipe: RemoteRecipe) -> bytes:
+    """The gzipped JSON document the recipe endpoint expects.
+
+    Two spelling matters, both observed from the app's own uploads rather
+    than documented anywhere: an absent photo is `null`, never an empty
+    string, and `photo_url` is not sent at all -- it only ever appears in
+    responses, where the server fills it with a signed download link.
+    """
+    data = recipe.as_dict()
+    data.pop("photo_url", None)
+
+    for name in ("photo", "photo_hash", "photo_large"):
+        data[name] = data[name] or None
+
+    return gzip.compress(json.dumps(data).encode("utf-8"))
