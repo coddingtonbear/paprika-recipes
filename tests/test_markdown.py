@@ -2,6 +2,8 @@ import pytest
 
 from paprika_recipes.exceptions import PaprikaUserError
 from paprika_recipes.markdown import (
+    documents_differ,
+    extra_frontmatter,
     find_lossy_fields,
     normalize_recipe,
     parse_recipe,
@@ -220,6 +222,75 @@ class TestNormalization:
         assert normalize_recipe(recipe) == recipe
 
 
+class TestExtraFrontmatter:
+    """Frontmatter that belongs to the user rather than to us."""
+
+    def test_reports_only_the_keys_that_are_not_recipe_fields(self):
+        content = render_recipe(BaseRecipe(name="Test")).replace(
+            "---\n", "---\ntags: [dinner]\n", 1
+        )
+
+        assert extra_frontmatter(content, BaseRecipe) == {"tags": ["dinner"]}
+
+    def test_reports_nothing_for_a_file_we_wrote_ourselves(self):
+        content = render_recipe(BaseRecipe(name="Test", rating=4))
+
+        assert extra_frontmatter(content, BaseRecipe) == {}
+
+    def test_renders_extra_keys_back_into_the_frontmatter(self):
+        rendered = render_recipe(BaseRecipe(name="Test"), {"tags": ["dinner"]})
+
+        assert "tags:" in rendered.split("---")[1]
+        assert extra_frontmatter(rendered, BaseRecipe) == {"tags": ["dinner"]}
+
+    def test_ignores_extra_keys_when_parsing_the_recipe(self):
+        recipe = BaseRecipe(name="Test", rating=4)
+
+        rendered = render_recipe(recipe, {"tags": ["dinner"]})
+
+        assert parse_recipe(rendered, BaseRecipe) == recipe
+
+    def test_never_lets_extra_keys_shadow_a_recipe_field(self):
+        rendered = render_recipe(BaseRecipe(name="Test", rating=4), {"rating": 1})
+
+        assert parse_recipe(rendered, BaseRecipe).rating == 4
+
+
+class TestDocumentComparison:
+    """Frontmatter is compared as data; the body as text."""
+
+    def test_a_file_matches_its_own_rendering(self):
+        rendered = render_recipe(BaseRecipe(name="Test", directions="Bake."))
+
+        assert not documents_differ(rendered, rendered)
+
+    def test_reflowed_frontmatter_is_not_a_difference(self):
+        recipe = BaseRecipe(name="Test", categories=["Bread", "Georgian"])
+        rendered = render_recipe(recipe)
+        reflowed = rendered.replace(
+            "categories:\n- Bread\n- Georgian\n", "categories: [Bread, Georgian]\n"
+        )
+
+        assert reflowed != rendered
+        assert not documents_differ(reflowed, rendered)
+
+    def test_an_edited_frontmatter_value_is_a_difference(self):
+        rendered = render_recipe(BaseRecipe(name="Test", rating=0))
+
+        assert documents_differ(rendered.replace("rating: 0", "rating: 5"), rendered)
+
+    def test_the_body_is_compared_as_text(self):
+        """Reformatting prose counts, even where markdown would render alike."""
+        rendered = render_recipe(BaseRecipe(name="Test", ingredients="2 eggs"))
+
+        assert documents_differ(rendered.replace("- 2 eggs", "* 2 eggs"), rendered)
+
+    def test_an_unreadable_file_counts_as_different(self):
+        rendered = render_recipe(BaseRecipe(name="Test"))
+
+        assert documents_differ("no frontmatter here", rendered)
+
+
 class TestLossDetection:
     def test_reports_nothing_for_an_ordinary_recipe(self):
         recipe = BaseRecipe(
@@ -241,6 +312,10 @@ class TestParsingErrors:
     def test_rejects_frontmatter_that_is_not_a_mapping(self):
         with pytest.raises(PaprikaUserError, match="mapping"):
             parse_recipe("---\n- one\n- two\n---\n\n# Title\n", BaseRecipe)
+
+    def test_rejects_frontmatter_that_is_not_valid_yaml(self):
+        with pytest.raises(PaprikaUserError, match="could not be read"):
+            parse_recipe("---\nname: [oops\n---\n\n# Title\n", BaseRecipe)
 
     def test_ignores_unknown_frontmatter_fields(self):
         """Users may keep their own metadata alongside ours."""

@@ -6,6 +6,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from .cache import Cache, NullCache
+from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaError, RequestError
 from .recipe import BaseRecipe
 from .types import RecipeManager, RemoteRecipeIdentifier
@@ -32,7 +33,7 @@ class Remote(RecipeManager):
         self,
         email: str,
         password: str,
-        domain: str = "www.paprikaapp.com",
+        domain: str = DEFAULT_DOMAIN,
         cache: Cache | None = None,
     ):
         super().__init__()
@@ -87,6 +88,16 @@ class Remote(RecipeManager):
 
     def count(self) -> int:
         return len(self._get_remote_recipe_identifiers())
+
+    def get_recipe_index(self) -> dict[str, str]:
+        """Map every recipe's uid to the hash the server currently holds for it.
+
+        One request covers the whole account, which makes this the cheap way
+        of asking which recipes have moved since we last looked.
+        """
+        return {
+            recipe.uid: recipe.hash for recipe in self._get_remote_recipe_identifiers()
+        }
 
     def upload_recipe(self, recipe: RemoteRecipe) -> RemoteRecipe:
         recipe.update_hash()

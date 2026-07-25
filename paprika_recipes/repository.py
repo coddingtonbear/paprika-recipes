@@ -34,14 +34,17 @@ whether the *server's* copy has moved.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Final
 
+from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaUserError
 from .markdown import (
+    documents_differ,
+    extra_frontmatter,
     find_lossy_fields,
     normalize_recipe,
     parse_recipe,
@@ -54,7 +57,6 @@ REPOSITORY_DIRNAME: Final = ".paprika"
 BASE_DIRNAME: Final = "recipes"
 CONFIG_FILENAME: Final = "config.yaml"
 RECIPE_SUFFIX: Final = ".md"
-DEFAULT_DOMAIN: Final = "www.paprikaapp.com"
 
 #: Characters we refuse to put in a filename.  Paprika itself is happy with
 #: any of them, but they are either illegal or a nuisance somewhere we might
@@ -79,6 +81,15 @@ class WorkingRecipe:
     recipe: RemoteRecipe | None
     base: RemoteRecipe | None
 
+    @property
+    def name(self) -> str:
+        """What to call this recipe when talking to the user about it."""
+        for recipe in (self.recipe, self.base):
+            if recipe is not None and recipe.name:
+                return recipe.name
+
+        return self.uid
+
     def changed_fields(self) -> list[str]:
         """Which fields the user actually edited, relative to the base copy."""
         if self.recipe is None or self.base is None:
@@ -93,6 +104,20 @@ class WorkingRecipe:
             # `hash` is the server's token, not ours to diff on.
             if key != "hash" and current[key] != base.get(key)
         )
+
+    def has_local_changes(self) -> bool:
+        """Is there anything here the server would care about?
+
+        A file can be MODIFIED without this being true: the user may have
+        reordered the frontmatter or reflowed a list, which changes the bytes
+        on disk without changing the recipe.  Sync decisions key off this
+        rather than off `status` alone, so that cosmetic edits neither
+        manufacture an upload nor stand in the way of one.
+        """
+        if self.status in (Status.ADDED, Status.DELETED):
+            return True
+
+        return bool(self.changed_fields())
 
 
 @dataclass
@@ -237,7 +262,20 @@ class Repository:
         except PaprikaUserError as e:
             raise PaprikaUserError(f"{path}: {e}")
 
-    def write_working(self, recipe: RemoteRecipe, path: Path | None = None) -> Path:
+    def read_extra(self, path: Path) -> dict[str, Any]:
+        """The frontmatter in a working file that is not ours; see `markdown`."""
+        if not path.is_file():
+            return {}
+
+        with open(path, encoding="utf-8") as inf:
+            return extra_frontmatter(inf.read(), RemoteRecipe)
+
+    def write_working(
+        self,
+        recipe: RemoteRecipe,
+        path: Path | None = None,
+        extra: Mapping[str, Any] | None = None,
+    ) -> Path:
         lossy = find_lossy_fields(recipe)
         if lossy:
             raise PaprikaUserError(
@@ -252,7 +290,7 @@ class Repository:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, "w", encoding="utf-8") as outf:
-            outf.write(render_recipe(recipe))
+            outf.write(render_recipe(recipe, extra))
 
         return path
 
@@ -269,8 +307,9 @@ class Repository:
         it, which would make the recipe look permanently modified.
         """
         normalized = normalize_recipe(recipe)
+        path = self.path_for(normalized, existing)
 
-        path = self.write_working(normalized, self.path_for(normalized, existing))
+        self.write_working(normalized, path, self.read_extra(path))
         self.write_base(normalized)
 
         return path
@@ -341,7 +380,13 @@ class Repository:
             return True
 
         with open(path, encoding="utf-8") as inf:
-            return inf.read() != render_recipe(base)
+            content = inf.read()
+
+        # Render the base with the file's own extra frontmatter, so that a
+        # user's `tags:` is not mistaken for an edit to the recipe.
+        return documents_differ(
+            content, render_recipe(base, extra_frontmatter(content, RemoteRecipe))
+        )
 
     def status(self) -> list[WorkingRecipe]:
         paths = self.paths_by_uid()

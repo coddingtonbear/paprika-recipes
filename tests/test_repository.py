@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -31,6 +32,14 @@ def make_recipe(**overrides) -> RemoteRecipe:
 
 def pull(repository: Repository, recipe: RemoteRecipe):
     return repository.store(recipe)
+
+
+def add_frontmatter(path: Path, line: str) -> None:
+    """Add a line of the user's own frontmatter to a recipe file."""
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("---\n", f"---\n{line}\n", 1),
+        encoding="utf-8",
+    )
 
 
 class TestInitialization:
@@ -201,6 +210,79 @@ class TestStore:
 
         assert base is not None
         assert path.read_text(encoding="utf-8") == render_recipe(base)
+
+
+class TestUserFrontmatter:
+    """A recipe file may live in a vault whose frontmatter is not all ours."""
+
+    def test_a_users_own_frontmatter_is_not_an_edit_to_the_recipe(self, repository):
+        path = pull(repository, make_recipe())
+        add_frontmatter(path, "tags: [dinner]")
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+
+    def test_a_users_own_frontmatter_survives_a_later_pull(self, repository):
+        recipe = make_recipe()
+        path = pull(repository, recipe)
+        add_frontmatter(path, "tags: [dinner]")
+
+        repository.store(make_recipe(uid=recipe.uid, notes="Updated upstream."))
+
+        assert "tags:" in path.read_text(encoding="utf-8")
+        assert repository.read_working(path).notes == "Updated upstream."
+
+    def test_an_edit_is_still_detected_alongside_extra_frontmatter(self, repository):
+        path = pull(repository, make_recipe())
+        add_frontmatter(path, "tags: [dinner]")
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("rating: 0", "rating: 5"),
+            encoding="utf-8",
+        )
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.MODIFIED
+        assert entry.changed_fields() == ["rating"]
+
+
+class TestLocalChanges:
+    """`has_local_changes` asks whether the *server* would care."""
+
+    def test_cosmetic_edits_do_not_count(self, repository):
+        path = pull(repository, make_recipe())
+        path.write_text(path.read_text(encoding="utf-8") + "\n\n", encoding="utf-8")
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.MODIFIED
+        assert not entry.has_local_changes()
+
+    def test_a_real_edit_counts(self, repository):
+        path = pull(repository, make_recipe())
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("Bake.", "Broil."),
+            encoding="utf-8",
+        )
+
+        (entry,) = repository.status()
+
+        assert entry.has_local_changes()
+
+    def test_an_untracked_recipe_counts(self, repository):
+        repository.write_working(make_recipe())
+
+        (entry,) = repository.status()
+
+        assert entry.has_local_changes()
+
+    def test_a_deleted_recipe_counts(self, repository):
+        pull(repository, make_recipe()).unlink()
+
+        (entry,) = repository.status()
+
+        assert entry.has_local_changes()
 
 
 class TestWriteSafety:

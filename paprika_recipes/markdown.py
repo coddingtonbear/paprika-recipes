@@ -16,8 +16,11 @@ would make the round-trip lossy for no gain.
 from __future__ import annotations
 
 import io
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final, TypeVar
+
+from yaml import YAMLError
 
 from .exceptions import PaprikaUserError
 from .utils import dump_yaml, load_yaml
@@ -59,11 +62,18 @@ BODY_FIELDS: Final = frozenset(
 _HEADINGS_BY_TITLE: Final = dict(SECTIONS)
 
 
-def render_recipe(recipe: BaseRecipe) -> str:
-    """Render a recipe as a markdown document with YAML frontmatter."""
+def render_recipe(recipe: BaseRecipe, extra: Mapping[str, Any] | None = None) -> str:
+    """Render a recipe as a markdown document with YAML frontmatter.
+
+    `extra` holds frontmatter the recipe itself knows nothing about -- see
+    `extra_frontmatter` for why we carry it around.
+    """
     data = recipe.as_dict()
 
-    frontmatter = {key: value for key, value in data.items() if key not in BODY_FIELDS}
+    frontmatter: dict[str, Any] = dict(extra or {})
+    frontmatter.update(
+        {key: value for key, value in data.items() if key not in BODY_FIELDS}
+    )
 
     out = io.StringIO()
     out.write(f"{FRONTMATTER_DELIMITER}\n")
@@ -95,6 +105,50 @@ def parse_recipe(content: str, recipe_class: type[T]) -> T:
     data.update(_parse_body(body))
 
     return recipe_class.from_dict(data)
+
+
+def documents_differ(content: str, rendered: str) -> bool:
+    """Does a recipe file say something different from a rendering of a recipe?
+
+    The two halves of the document are compared differently, on purpose.
+
+    The body is compared as *text*.  Our markdown encoding of a recipe's prose
+    is a bespoke transformation, and comparing the text is what keeps change
+    detection independent of how faithfully that transformation round-trips:
+    both sides pass through it identically, so any normalisation cancels out.
+
+    The frontmatter is compared as *data*.  It is ordinary YAML, which we did
+    not invent and which `safe_load` reads back faithfully -- and there are
+    many ways to spell the same mapping.  A user who types `tags: [dinner]`
+    into their editor rather than the block form we would have written has not
+    edited the recipe, and should not be told they have.
+    """
+    try:
+        theirs, their_body = _split_frontmatter(content)
+    except PaprikaUserError:
+        # Not a document we could have written; treat it as changed and let
+        # whoever tries to read it produce the useful error message.
+        return True
+
+    ours, our_body = _split_frontmatter(rendered)
+
+    return ours != theirs or our_body != their_body
+
+
+def extra_frontmatter(content: str, recipe_class: type[BaseRecipe]) -> dict[str, Any]:
+    """Return the frontmatter keys that are not fields of a recipe.
+
+    A recipe file is meant to be a good citizen of whatever directory it lands
+    in, and somewhere like an Obsidian vault that means the frontmatter is not
+    exclusively ours -- a user may well add `tags`, `aliases` or anything else
+    alongside the fields we put there.  We never interpret those keys, but we
+    do carry them through unchanged whenever we rewrite the file, so that
+    pulling an updated recipe does not quietly discard them.
+    """
+    frontmatter, _ = _split_frontmatter(content)
+    known = {field.name for field in recipe_class.get_all_fields()}
+
+    return {key: value for key, value in frontmatter.items() if key not in known}
 
 
 def normalize_recipe(recipe: T) -> T:
@@ -207,7 +261,10 @@ def _split_frontmatter(content: str) -> tuple[dict[str, Any], str]:
         if line.strip() != FRONTMATTER_DELIMITER:
             continue
 
-        frontmatter = load_yaml("\n".join(remainder[:index])) or {}
+        try:
+            frontmatter = load_yaml("\n".join(remainder[:index])) or {}
+        except YAMLError as e:
+            raise PaprikaUserError(f"Recipe's YAML frontmatter could not be read: {e}")
 
         if not isinstance(frontmatter, dict):
             raise PaprikaUserError(

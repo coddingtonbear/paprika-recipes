@@ -8,8 +8,10 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 from .cache import Cache, DirectoryCache, NullCache, WriteOnlyDirectoryCache
+from .constants import DEFAULT_DOMAIN
 from .exceptions import PaprikaProgrammingError
 from .remote import Remote
+from .repository import Repository
 from .types import ConfigDict
 from .utils import get_cache_dir, get_password_for_email
 
@@ -110,7 +112,22 @@ class RemoteCommand(BaseCommand):
     ) -> None:
         """Allows adding additional command-line arguments."""
         parser.add_argument(
-            "--account", type=str, default=config.get("default_account", "")
+            "--account",
+            type=str,
+            default=None,
+            help=(
+                "the paprika account to talk to; defaults to the account this "
+                "directory was cloned from, or to your default account."
+            ),
+        )
+        parser.add_argument(
+            "--domain",
+            type=str,
+            default=None,
+            help=(
+                "the host serving paprika's API; only useful for putting a "
+                f"proxy in front of it. default: {DEFAULT_DOMAIN}"
+            ),
         )
         parser.add_argument(
             "--cache-mode",
@@ -131,9 +148,66 @@ class RemoteCommand(BaseCommand):
         )
         super()._add_arguments(parser, config)
 
+    def get_account(self) -> str:
+        return self.options.account or self.config.get("default_account", "")
+
+    def get_domain(self) -> str:
+        return self.options.domain or DEFAULT_DOMAIN
+
     def get_remote(self) -> Remote:
+        account = self.get_account()
+
         return Remote(
-            self.options.account,
-            get_password_for_email(self.options.account),
+            account,
+            get_password_for_email(account),
+            domain=self.get_domain(),
             cache=self.get_cache(),
         )
+
+
+class RepositoryCommand(BaseCommand):
+    """A command that operates on a directory of recipe files."""
+
+    _repository: Repository | None = None
+
+    @classmethod
+    def _add_arguments(
+        cls, parser: argparse.ArgumentParser, config: ConfigDict
+    ) -> None:
+        parser.add_argument(
+            "--directory",
+            type=Path,
+            default=None,
+            help=(
+                "the recipe directory to work in; by default, the current "
+                "directory or the nearest parent of it that is one."
+            ),
+        )
+        super()._add_arguments(parser, config)
+
+    @property
+    def repository(self) -> Repository:
+        if self._repository is None:
+            self._repository = Repository.find(self.options.directory)
+
+        return self._repository
+
+
+class RepositorySyncCommand(RepositoryCommand, RemoteCommand):
+    """A command that syncs a directory of recipe files against an account.
+
+    The directory remembers which account it was cloned from, so that syncing
+    it does the same thing wherever it is run from and whatever the machine's
+    default account happens to be.  An explicit `--account` still wins, which
+    is what makes it possible to copy a directory into another account.
+    """
+
+    def get_account(self) -> str:
+        return (
+            self.options.account
+            or self.repository.config.account
+            or self.config.get("default_account", "")
+        )
+
+    def get_domain(self) -> str:
+        return self.options.domain or self.repository.config.domain
