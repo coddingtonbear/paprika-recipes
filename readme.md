@@ -4,12 +4,12 @@
 
 ```bash
 # First: clone your recipes into a folder somewhere
-$ paprika-recipes clone you@example.com ~/recipes
-$ cd ~/recipes
+paprika-recipes clone you@example.com ~/recipes
+cd ~/recipes
 # Second: make your changes to whatever recipe using whatever editor
-$ vim Khachapuri.md
+vim Khachapuri.md
 # Finally: push up your changes to Paprika
-$ paprika-recipes push
+paprika-recipes push
 ```
 
 ## Why
@@ -29,24 +29,26 @@ Paprika has no official public API; this tool speaks the same sync protocol the 
 
 <!-- toc -->
 
-- [Installation](#installation)
-- [Getting started](#getting-started)
-  * [Writing a recipe yourself](#writing-a-recipe-yourself)
-- [Commands](#commands)
-- [How syncing works](#how-syncing-works)
-  * [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
-  * [Recipe files](#recipe-files)
-- [Working with exported archives](#working-with-exported-archives)
-- [Scripting](#scripting)
-- [Upgrading from 2.x](#upgrading-from-2x)
-- [Other tools](#other-tools)
+- [Paprika-Recipes: Keep your paprika recipes in a directory of markdown files](#paprika-recipes-keep-your-paprika-recipes-in-a-directory-of-markdown-files)
+  - [Why](#why)
+  - [Installation](#installation)
+  - [Getting started](#getting-started)
+    - [Writing a recipe yourself](#writing-a-recipe-yourself)
+  - [Commands](#commands)
+  - [How syncing works](#how-syncing-works)
+    - [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
+    - [Recipe files](#recipe-files)
+  - [Working with exported archives](#working-with-exported-archives)
+  - [Scripting](#scripting)
+  - [Upgrading from 2.x](#upgrading-from-2x)
+  - [Other tools](#other-tools)
 
 <!-- tocstop -->
 
 ## Installation
 
 ```bash
-$ uv tool install paprika-recipes
+uv tool install paprika-recipes
 ```
 
 If [uv](https://docs.astral.sh/uv/) isn't your thing, `pipx install paprika-recipes` does the same job, and plain `pip install paprika-recipes` works in a virtualenv of your own.
@@ -56,7 +58,7 @@ If [uv](https://docs.astral.sh/uv/) isn't your thing, `pipx install paprika-reci
 There is nothing to set up. Check out your recipes:
 
 ```bash
-$ paprika-recipes clone you@example.com ~/recipes
+paprika-recipes clone you@example.com ~/recipes
 ```
 
 You'll be asked for your Paprika password. It goes into your system keyring, and the account is recorded in the directory itself, so nothing asks again — and if your password ever changes, you're simply asked for the new one the next time it doesn't work.
@@ -93,10 +95,10 @@ Bake for 20 minutes.
 Edit them however you like, then:
 
 ```bash
-$ paprika-recipes status   # what have I changed?
-$ paprika-recipes push     # send it to Paprika
-$ paprika-recipes pull     # bring down changes made elsewhere
-$ paprika-recipes restore  # undo local changes
+paprika-recipes status   # what have I changed?
+paprika-recipes push     # send it to Paprika
+paprika-recipes pull     # bring down changes made elsewhere
+paprika-recipes restore  # undo local changes
 ```
 
 `status` tells you what `push` is going to do before you do it:
@@ -157,9 +159,9 @@ Two things can't be merged that way: the recipe's **name**, and any non-prose fi
 **Anything can be undone before you push it.** `restore` puts a recipe back exactly the way it last arrived -- an edit, or the file itself if you deleted it:
 
 ```bash
-$ paprika-recipes restore "Best-Ever Focaccia"   # by title
-$ paprika-recipes restore ./Breads/Focaccia.md   # or by file
-$ paprika-recipes restore --all                  # or everything
+paprika-recipes restore "Best-Ever Focaccia"   # by title
+paprika-recipes restore ./Breads/Focaccia.md   # or by file
+paprika-recipes restore --all                  # or everything
 ```
 
 That includes a photo: restoring puts the embed back the way it arrived, and if you had swapped the image itself out, the substitute is discarded so that the next `pull` can put the original back — the one thing restore cannot do without the network is re-download it on the spot.
@@ -209,7 +211,7 @@ If you want a line that genuinely begins with `##` inside your directions, just 
 If your vault already uses `rating:`, `source:`, `categories:` or `created:` for something of its own, clone with a prefix:
 
 ```bash
-$ paprika-recipes clone you@example.com ~/vault/Recipes --frontmatter-prefix paprika_
+paprika-recipes clone you@example.com ~/vault/Recipes --frontmatter-prefix paprika_
 ```
 
 Every field Paprika owns is then written as `paprika_rating:`, `paprika_uid:` and so on — and, just as importantly, an *unprefixed* field is yours. It stays in the file and is never uploaded, even if it happens to share a name with one of ours.
@@ -227,8 +229,8 @@ Notably, ingredient amounts are *not* parsed. Paprika stores ingredients as a si
 If you would rather not give this tool your account details at all, you can work with a `.paprikarecipes` export from the app instead. Export from Paprika, edit, import back:
 
 ```bash
-$ paprika-recipes extract-archive export.paprikarecipes ./recipes/
-$ paprika-recipes create-archive ./recipes/ new-export.paprikarecipes
+paprika-recipes extract-archive export.paprikarecipes ./recipes/
+paprika-recipes create-archive ./recipes/ new-export.paprikarecipes
 ```
 
 | Command | What it does |
@@ -247,7 +249,12 @@ What this route does *not* have is any memory of where a recipe came from, so th
 Every command takes `--json`, which writes a versioned document to stdout and moves everything else — the report, the progress bar, any prompts — to stderr:
 
 ```bash
-$ paprika-recipes status --json
+paprika-recipes status --json
+```
+
+& you'll receive this output:
+
+```json
 {
   "version": 1,
   "unchanged": 81,
