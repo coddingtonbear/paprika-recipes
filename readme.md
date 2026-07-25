@@ -1,26 +1,65 @@
 # Paprika-Recipes: Keep your paprika recipes in a directory of markdown files
 
-[Paprika](https://www.paprikaapp.com/) is a lovely recipe app, but your recipes live inside it. This tool checks them out into a directory of plain markdown files that you can edit in whatever you already use -- your editor, your note vault, your usual git workflow -- and then sync your changes back.
+[Paprika](https://www.paprikaapp.com/) is a lovely recipe app, but your recipes are then trapped inside it. This tool checks them out into a directory of plain markdown files that you can edit in whatever you already use -- your editor, your note vault, your usual git workflow -- and then sync your changes back.
 
-If you have used git, you already know the commands: `clone`, `pull`, `push`, `status`.
+```bash
+# First: clone your recipes into a folder somewhere
+$ paprika-recipes clone you@example.com ~/recipes
+# Second: make your changes to whatever recipe using whatever editor
+$ vim ~/recipes/Khachapuri.md
+# Finally: push up your changes to Paprika
+$ paprika-recipes push
+```
+
+## Why
+
+- **Your recipes become real files** -- one markdown file per recipe: editable, greppable, diffable, and perfectly at home in a git repository.
+- **Made to live in a note vault** -- clone straight into Obsidian or anything like it: photos render inline, your own tags, aliases, and extra sections stay in the files without ever being uploaded, and a [frontmatter prefix](#keeping-out-of-your-vaults-way) keeps Paprika's fields from colliding with your vault's.
+- **Two-way, not just export** -- edits you make locally go back to Paprika, changes you make in the app come down, and `status` shows you exactly what would be sent before anything is.
+- **Photos sync in both directions** -- each recipe's photo is downloaded and embedded beneath its title, and adding, swapping, or deleting that embed line uploads, replaces, or removes the photo in Paprika.
+- **Write new recipes in your editor** -- a markdown file with a `# Title` becomes a real Paprika recipe on the next `push`.
+- **You already know the commands** -- `clone`, `pull`, `push`, `status`, `restore`, with `--dry-run` everywhere and `--json` plus meaningful exit codes when you are scripting.
+
+Paprika has no official public API; this tool speaks the same sync protocol the apps themselves use. That fact shapes its manners: nothing is uploaded without `status` being able to show it to you first, anything can be undone before it is pushed, and deleting a recipe only ever moves it to Paprika's own trash.
+
+**Contents**
+
+<!-- regenerate with: npx markdown-toc -i readme.md -->
+
+<!-- toc -->
+
+- [Paprika-Recipes: Keep your paprika recipes in a directory of markdown files](#paprika-recipes-keep-your-paprika-recipes-in-a-directory-of-markdown-files)
+  - [Why](#why)
+  - [Installation](#installation)
+  - [Getting started](#getting-started)
+    - [Writing a recipe yourself](#writing-a-recipe-yourself)
+  - [Commands](#commands)
+  - [How syncing works](#how-syncing-works)
+    - [Keeping out of your vault's way](#keeping-out-of-your-vaults-way)
+    - [Recipe files](#recipe-files)
+  - [Working with exported archives](#working-with-exported-archives)
+  - [Scripting](#scripting)
+  - [Other tools](#other-tools)
+
+<!-- tocstop -->
 
 ## Installation
 
+```bash
+$ uv tool install paprika-recipes
 ```
-pip install paprika-recipes
-```
+
+If [uv](https://docs.astral.sh/uv/) isn't your thing, `pipx install paprika-recipes` does the same job, and plain `pip install paprika-recipes` works in a virtualenv of your own.
 
 ## Getting started
 
 There is nothing to set up. Check out your recipes:
 
-```
-paprika-recipes clone you@example.com ~/recipes
+```bash
+$ paprika-recipes clone you@example.com ~/recipes
 ```
 
 You'll be asked for your Paprika password. It goes into your system keyring, and the account is recorded in the directory itself, so nothing asks again — and if your password ever changes, you're simply asked for the new one the next time it doesn't work.
-
-The account is named rather than remembered, deliberately. There is no default account to fall back on, because which account a directory belongs to decides what gets written into it and where everything in it is sent from then on.
 
 Every recipe becomes a markdown file:
 
@@ -53,11 +92,11 @@ Bake for 20 minutes.
 
 Edit them however you like, then:
 
-```
-paprika-recipes status   # what have I changed?
-paprika-recipes push     # send it to Paprika
-paprika-recipes pull     # bring down changes made elsewhere
-paprika-recipes restore  # undo local changes
+```bash
+$ paprika-recipes status   # what have I changed?
+$ paprika-recipes push     # send it to Paprika
+$ paprika-recipes pull     # bring down changes made elsewhere
+$ paprika-recipes restore  # undo local changes
 ```
 
 `status` tells you what `push` is going to do before you do it:
@@ -77,45 +116,19 @@ Both `pull` and `push` accept `--dry-run` if you would rather see the whole plan
 
 ### Writing a recipe yourself
 
-Write a markdown file with a `# Title` and whatever sections you want, and `push` will create it in Paprika. It gets a `uid:` written into its frontmatter at that moment, and is an ordinary tracked recipe from then on. If you embed a photo from `attachments/` beneath the title, that goes up with it.
+Write a markdown file with a `# Title`, and `push` will create it in Paprika. The sections Paprika can hold are the ones `clone` writes — `## Ingredients`, `## Directions`, `## Notes`, and `## Nutritional Information`, spelled exactly that way — plus any prose directly beneath the title, which becomes the description. A section by any other name follows the [usual rule](#how-syncing-works): it stays in your file, but nothing in Paprika receives it. The recipe gets a `uid:` written into its frontmatter at the moment it's created, and is an ordinary tracked recipe from then on. If you embed a photo from `attachments/` beneath the title, that goes up with it.
 
-### Scripting
+## Commands
 
-Every command takes `--json`, which writes a versioned document to stdout and moves everything else — the report, the progress bar, any prompts — to stderr:
-
-```
-$ paprika-recipes status --json
-{
-  "version": 1,
-  "unchanged": 81,
-  "recipes": [
-    {
-      "uid": "4C855813-25B8-41CD-96E7-5B38AA7AAAAF",
-      "name": "One-Hour Pizza",
-      "path": "/home/you/recipes/One-Hour Pizza.md",
-      "status": "modified",
-      "conflicted": false,
-      "changed_fields": ["rating"],
-      "unsyncable": ["tags"]
-    }
-  ]
-}
-```
-
-Exit codes say what happened without your having to read the output:
-
-| code | meaning |
+| Command | What it does |
 |---|---|
-| 0 | everything asked for was done |
-| 1 | it ran, but something needs you — a conflict, a recipe it would not push |
-| 2 | the command line was malformed |
-| 3 | could not log in |
-| 4 | Paprika could not be reached, or refused what we sent |
-| 5 | something about the directory or its files is wrong |
+| `clone <email> [directory]` | Check an account's recipes out into a directory of markdown files, photos included. `--frontmatter-prefix` keeps Paprika's fields [out of a vault's way](#keeping-out-of-your-vaults-way). |
+| `pull` | Bring down changes made in Paprika, reconciling them with any local edits. |
+| `push` | Send local changes up: edits, new recipe files, photo changes, and deletions (into Paprika's trash). |
+| `status` | Show what `push` would do without doing it. `--exit-code` makes it exit 1 when there are changes, after `git diff --exit-code`. |
+| `restore <recipe>...` | Put recipes back the way they last arrived -- undoing an edit, or bringing back a deleted file. `--all` restores everything at once. |
 
-`status` exits 0 whether or not you have local changes, since having them is the ordinary state of a working directory. Pass `--exit-code` — after `git diff --exit-code` — to have it answer that question instead.
-
-Because `--json` implies nobody is watching, it will not stop to ask for a password; run any command once from a terminal to get your credentials into the keyring first.
+`pull` and `push` both take `--dry-run`, and every command takes `--json` ([see Scripting](#scripting)). Two further commands work on exported archives rather than an account, and have [a section of their own](#working-with-exported-archives).
 
 ## How syncing works
 
@@ -143,10 +156,10 @@ Two things can't be merged that way: the recipe's **name**, and any non-prose fi
 
 **Anything can be undone before you push it.** `restore` puts a recipe back exactly the way it last arrived -- an edit, or the file itself if you deleted it:
 
-```
-paprika-recipes restore "Best-Ever Focaccia"   # by title
-paprika-recipes restore ./Breads/Focaccia.md   # or by file
-paprika-recipes restore --all                  # or everything
+```bash
+$ paprika-recipes restore "Best-Ever Focaccia"   # by title
+$ paprika-recipes restore ./Breads/Focaccia.md   # or by file
+$ paprika-recipes restore --all                  # or everything
 ```
 
 That includes a photo: restoring puts the embed back the way it arrived, and if you had swapped the image itself out, the substitute is discarded so that the next `pull` can put the original back — the one thing restore cannot do without the network is re-download it on the spot.
@@ -195,8 +208,8 @@ If you want a line that genuinely begins with `##` inside your directions, just 
 
 If your vault already uses `rating:`, `source:`, `categories:` or `created:` for something of its own, clone with a prefix:
 
-```
-paprika-recipes clone you@example.com ~/vault/Recipes --frontmatter-prefix paprika_
+```bash
+$ paprika-recipes clone you@example.com ~/vault/Recipes --frontmatter-prefix paprika_
 ```
 
 Every field Paprika owns is then written as `paprika_rating:`, `paprika_uid:` and so on — and, just as importantly, an *unprefixed* field is yours. It stays in the file and is never uploaded, even if it happens to share a name with one of ours.
@@ -213,13 +226,70 @@ Notably, ingredient amounts are *not* parsed. Paprika stores ingredients as a si
 
 If you would rather not give this tool your account details at all, you can work with a `.paprikarecipes` export from the app instead. Export from Paprika, edit, import back:
 
+```bash
+$ paprika-recipes extract-archive export.paprikarecipes ./recipes/
+$ paprika-recipes create-archive ./recipes/ new-export.paprikarecipes
 ```
-paprika-recipes extract-archive export.paprikarecipes ./recipes/
-paprika-recipes create-archive ./recipes/ new-export.paprikarecipes
-```
+
+| Command | What it does |
+|---|---|
+| `extract-archive <archive> <directory>` | Unpack a `.paprikarecipes` export into the same markdown files `clone` writes. |
+| `create-archive <directory> <archive>` | Pack a directory of recipe files back into a `.paprikarecipes` archive. |
 
 You get the same markdown files `clone` writes, so everything above about the format applies. Recipe photos are written into the same `attachments/` folder a cloned directory uses, embedded from their recipes, and folded back in when you repack — an archive stores them inline as base64, which is fine for a zip file and hopeless for a file you intend to read.
 
 What this route does *not* have is any memory of where a recipe came from, so there is no `status`, no change detection and no conflict handling. It is a straight unpack and repack. If you want those, use `clone`.
 
 `create-archive` searches subdirectories, and skips a `.paprika` directory if it finds one — so you can also point it at a directory you cloned, and get an archive out of your account. One caveat if you did that with `--frontmatter-prefix`: the archive commands have no directory to ask about a prefix and always read and write unprefixed files.
+
+## Scripting
+
+Every command takes `--json`, which writes a versioned document to stdout and moves everything else — the report, the progress bar, any prompts — to stderr:
+
+```bash
+$ paprika-recipes status --json
+{
+  "version": 1,
+  "unchanged": 81,
+  "recipes": [
+    {
+      "uid": "4C855813-25B8-41CD-96E7-5B38AA7AAAAF",
+      "name": "One-Hour Pizza",
+      "path": "/home/you/recipes/One-Hour Pizza.md",
+      "status": "modified",
+      "conflicted": false,
+      "changed_fields": ["rating"],
+      "unsyncable": ["tags"]
+    }
+  ]
+}
+```
+
+Exit codes say what happened without your having to read the output:
+
+| code | meaning |
+|---|---|
+| 0 | everything asked for was done |
+| 1 | it ran, but something needs you — a conflict, a recipe it would not push |
+| 2 | the command line was malformed |
+| 3 | could not log in |
+| 4 | Paprika could not be reached, or refused what we sent |
+| 5 | something about the directory or its files is wrong |
+
+`status` exits 0 whether or not you have local changes, since having them is the ordinary state of a working directory. Pass `--exit-code` — after `git diff --exit-code` — to have it answer that question instead.
+
+Because `--json` implies nobody is watching, it will not stop to ask for a password; run any command once from a terminal to get your credentials into the keyring first.
+
+## Other tools
+
+Plenty of tools can get recipes *out* of Paprika as markdown. As far as I know, this is the only one that also gets your edits back *in* — the others are exporters, run once or on a schedule, with no memory of what you have changed since. If a one-time export is genuinely all you need, any of these will serve:
+
+| | Reads from | Writes | Edits go back to Paprika | Photos |
+|---|---|---|---|---|
+| paprika-recipes | your account, or an archive | markdown | ✅ full two-way sync | ✅ both directions |
+| [paprika-to-obsidian-markdown](https://github.com/jt196/paprika-to-obsidian-markdown) | `.paprikarecipes` archive | markdown (Obsidian/Dataview templates) | ❌ | download only |
+| [paprika-to-markdown](https://github.com/simonhbor/paprika-to-markdown) | `.paprikarecipes` archive | markdown | ❌ | download only |
+| [paprika-exporter](https://github.com/bojanrajkovic/paprika-exporter) (archived) | your account | markdown (Jekyll-flavored) | ❌ | — |
+| [paprika-exporter](https://github.com/sstarcher/paprika-exporter) | your account | YAML | ❌ | download only |
+
+Two neighbours doing a different job entirely: [kappari](https://github.com/johnwbyrd/kappari) documents the Paprika API rather than wrapping it, and [paprika-tools](https://github.com/aarons22/paprika-tools) exposes Paprika to AI agents as an MCP server rather than as files on disk.
