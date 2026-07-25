@@ -18,11 +18,22 @@ from .sync import Action, SyncReport
 #: yellow -- they are the one outcome that needs the reader to do something,
 #: so they should not blend in with the ordinary business of a recipe having
 #: changed.
+#:
+#: These are the terminal's own palette colours, and deliberately nothing
+#: else: they are themed by whoever is reading, so they are legible against
+#: their background by construction.  An absolute colour -- `bright_black`,
+#: `white`, a hex value -- is a guess about a background we cannot see, and
+#: `bright_black` in particular is invisible on a dark terminal.
 GONE: Final = "red"
 NEW: Final = "green"
 CHANGED: Final = "yellow"
 NEEDS_ATTENTION: Final = "magenta"
-QUIET: Final = "bright_black"
+
+#: De-emphasis is an *attribute* rather than a colour for the same reason: it
+#: dims the reader's own foreground colour instead of replacing it.  Where a
+#: terminal does not support it the text simply renders normally, which is the
+#: right way for this to fail -- legible, just not quiet.
+QUIET: Final = "dim"
 
 #: How each outcome is labelled and coloured.  The labels are padded to a
 #: common width so that a report reads as a column rather than a ragged list.
