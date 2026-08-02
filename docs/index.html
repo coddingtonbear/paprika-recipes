@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>paprika-recipes — your Paprika recipes as plain markdown files</title>
+<meta name="description" content="Check your Paprika recipes out as plain markdown files — edit them anywhere, share them with anyone, keep them in your note vault — and push your changes back.">
+<meta property="og:title" content="paprika-recipes — your Paprika recipes as plain markdown files">
+<meta property="og:description" content="Two-way sync between the Paprika recipe app and a directory of plain markdown files. Edit anywhere, share with anyone, push your changes back.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://coddingtonbear.github.io/paprika-recipes/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌶️</text></svg>">
+<style>
+  /* Single-theme by design: the page commits to its dark editorial identity
+     regardless of the viewer's OS or app theme. */
+  :root {
+    color-scheme: dark;
+    --ground: #1d1613;
+    --ground-2: #251d19;
+    --ink: #f4ece1;
+    --muted: #b5a897;
+    --accent: #ff7a4f;
+    --accent-2: #e8b64c;
+    --line: #3a2f28;
+    --editor-bg: #161110;
+    --editor-line: #2b2320;
+    --fm: #e8b64c;
+    --md-punct: #8d7f71;
+    --md-body: #e2d8ca;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--ground); }
+  body {
+    font-family: 'Iowan Old Style', Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+    color: var(--ink); line-height: 1.6;
+    background: var(--ground);
+  }
+  .shell { max-width: 66rem; margin: 0 auto; padding: 1.75rem 1.5rem 5rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header.bar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: .6rem; font-weight: 600; letter-spacing: .01em; }
+  .brand .dot { width: .65rem; height: .65rem; border-radius: 50%; background: var(--accent); display: inline-block; }
+  nav.links { display: flex; gap: 1.5rem; font-size: .9rem; }
+  nav.links a { color: var(--muted); }
+  nav.links a:hover { color: var(--accent); }
+
+  .hero {
+    display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: 3rem; align-items: center; margin-top: 4.5rem;
+  }
+  @media (max-width: 800px) { .hero { grid-template-columns: 1fr; margin-top: 3rem; } }
+
+  .hero h1 {
+    font-size: clamp(2.1rem, 5vw, 3.1rem); line-height: 1.12;
+    font-weight: 500; letter-spacing: -.015em; text-wrap: balance;
+    margin-bottom: 1.25rem;
+  }
+  .hero h1 em { font-style: italic; color: var(--accent); }
+  .hero .sub { color: var(--muted); font-size: 1.1rem; max-width: 30rem; margin-bottom: 2rem; }
+  .cta-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+  .cta {
+    display: inline-block; background: var(--accent); color: var(--ground);
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .85rem;
+    padding: .7rem 1.1rem; border-radius: 8px; font-weight: 600;
+  }
+  .cta:hover { text-decoration: none; filter: brightness(1.08); }
+  .cta-alt { color: var(--muted); font-size: .9rem; }
+
+  .editor {
+    background: var(--editor-bg); border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.35);
+  }
+  .editor .chrome {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .6rem .9rem; border-bottom: 1px solid var(--editor-line);
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .72rem; color: var(--muted);
+  }
+  .editor .chrome .tab { margin-left: .35rem; }
+  .editor .chrome .tab b { color: var(--ink); font-weight: 600; }
+  .editor pre {
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: .8rem; line-height: 1.7; padding: 1rem 1.25rem;
+    overflow-x: auto; color: var(--md-body);
+  }
+  .editor .fm { color: var(--fm); }
+  .editor .pn { color: var(--md-punct); }
+  .editor .hd { color: var(--accent); font-weight: 600; }
+  .editor .yours { background: color-mix(in srgb, var(--accent-2) 12%, transparent); display: inline-block; width: 100%; border-radius: 3px; }
+  .photo-strip {
+    margin: .35rem 0; height: 5.5rem; width: min(100%, 20rem); border-radius: 6px;
+    background:
+      radial-gradient(ellipse 60% 80% at 30% 40%, #c98a4b 0%, transparent 70%),
+      radial-gradient(ellipse 50% 70% at 70% 60%, #a4552b 0%, transparent 75%),
+      linear-gradient(140deg, #8a4a24, #5c2f16);
+    display: flex; align-items: flex-end; padding: .4rem .6rem;
+  }
+  .photo-strip span {
+    font-family: ui-monospace, Menlo, monospace; font-size: .62rem;
+    color: rgba(255,244,230,.85); background: rgba(20,10,5,.45);
+    padding: .1rem .4rem; border-radius: 3px;
+  }
+
+  .creed { margin-top: 6rem; max-width: 44rem; }
+  .creed h2 { font-size: clamp(1.5rem, 3.5vw, 2rem); font-weight: 500; line-height: 1.25; text-wrap: balance; margin-bottom: 1rem; }
+  .creed p { color: var(--muted); font-size: 1.05rem; margin-bottom: 1rem; }
+  .creed p b { color: var(--ink); font-weight: 600; }
+  .creed code, .vault-note code, .pillar code {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85em; color: var(--accent-2);
+  }
+
+  .pillars { margin-top: 4.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .pillar { background: var(--ground-2); padding: 1.6rem 1.5rem; }
+  .pillar h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: .5rem; }
+  .pillar h3::before { content: "¶ "; color: var(--accent); }
+  .pillar p { color: var(--muted); font-size: .93rem; }
+
+  .compare-block { margin-top: 4.5rem; }
+  .compare-block h2 { font-size: 1.3rem; font-weight: 600; margin-bottom: .5rem; }
+  .compare-block .sub { color: var(--muted); margin-bottom: 1.5rem; max-width: 42rem; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  table.compare { border-collapse: collapse; width: 100%; font-size: .9rem; min-width: 42rem; }
+  table.compare th, table.compare td { padding: .8rem 1rem; text-align: left; border-bottom: 1px solid var(--line); }
+  table.compare tr:last-child td { border-bottom: 0; }
+  table.compare th { background: var(--ground-2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 600; }
+  table.compare td:first-child { font-weight: 600; }
+  table.compare .yes { color: var(--accent); font-weight: 600; }
+  table.compare .no { color: var(--muted); }
+  table.compare tr.hero-row td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+
+  .vault-note {
+    margin-top: 4.5rem; border-left: 3px solid var(--accent);
+    padding: .35rem 0 .35rem 1.5rem; max-width: 42rem;
+  }
+  .vault-note h2 { font-size: 1.3rem; font-weight: 600; margin-bottom: .75rem; }
+  .vault-note p { color: var(--muted); margin-bottom: .75rem; }
+  .vault-note p:last-child { margin-bottom: 0; }
+
+  footer {
+    margin-top: 6rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+    color: var(--muted); font-size: .85rem;
+  }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="bar">
+    <div class="brand"><span class="dot"></span> paprika-recipes</div>
+    <nav class="links">
+      <a href="https://github.com/coddingtonbear/paprika-recipes">GitHub</a>
+      <a href="https://pypi.org/project/paprika-recipes/">PyPI</a>
+      <a href="https://github.com/coddingtonbear/paprika-recipes#getting-started">Docs</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Your recipes, out of the app and into <em>your files</em>.</h1>
+      <p class="sub">Paprika is a lovely recipe app — but your recipes are trapped inside it. Check them out as plain text: markdown files you can read anywhere, edit in anything, and share with anyone — then push your changes back.</p>
+      <div class="cta-row">
+        <a class="cta" href="https://pypi.org/project/paprika-recipes/">$ uv tool install paprika-recipes</a>
+        <span class="cta-alt">Free · MIT · two-way sync</span>
+      </div>
+    </div>
+    <div class="editor" role="img" aria-label="A recipe as a markdown file in an editor, with a highlighted line showing the user's own un-synced section">
+      <div class="chrome">◦ ◦ ◦ <span class="tab">~/recipes/<b>Khachapuri.md</b></span></div>
+      <pre><span class="fm">---
+categories: [Bread]
+rating: 4
+uid: 4C855813-25B8-41CD-96E7-…
+tags: [georgian, weekend-bake]   <span class="pn">← yours; never uploaded</span>
+---</span>
+
+<span class="hd"># Khachapuri</span>
+<div class="photo-strip"><span>attachments/D2246B0B….jpg</span></div>A Georgian cheese bread.
+
+<span class="hd">## Ingredients</span>
+
+<span class="pn">-</span> 3 1/2 cup all-purpose flour
+<span class="pn">-</span> 1 tsp salt
+
+<span class="yours"><span class="hd">## Substitutions</span></span>
+<span class="yours">Bread flour works, but 00 flour is better.</span>
+
+<span class="hd">## Directions</span>
+
+Combine the dry ingredients. Bake for 20 minutes.</pre>
+    </div>
+  </div>
+
+  <div class="creed">
+    <h2>Plain text is the whole trick.</h2>
+    <p>One markdown file per recipe: <b>readable in any editor, greppable, diffable</b>, at home in a git repository, and future-proof in the way only plain text is. No database, no proprietary format — a folder of files that will still open in fifty years.</p>
+    <p>Because a recipe is just a file, <b>sharing it is nothing special</b>: send it, publish it, or keep a git repo with the people you cook with. They can read it, edit it, and hand it back — and none of them ever needs Paprika.</p>
+    <p>And everything you add is yours and stays put. Keep the folder in a note vault like Obsidian if you like — photos render inline, and your own <code>tags:</code>, aliases, and <code>## Substitutions</code> section are never uploaded and never disturbed when a <code>pull</code> rewrites the file around them. (A <code>--frontmatter-prefix</code> keeps Paprika's fields politely namespaced if your vault already uses <code>rating:</code> for something else.)</p>
+  </div>
+
+  <div class="pillars">
+    <div class="pillar"><h3>Two-way, not export</h3><p>Local edits go back to Paprika; changes made in the app come down. Both at once are merged, section by section, with git-style conflict markers only when edits genuinely overlap.</p></div>
+    <div class="pillar"><h3>Photos, both directions</h3><p>Each recipe's photo is embedded beneath its title. Add, swap, or delete that embed line and the photo is uploaded, replaced, or removed in Paprika.</p></div>
+    <div class="pillar"><h3>Write recipes in your editor</h3><p>A markdown file with a <code># Title</code> becomes a real Paprika recipe on the next <code>push</code>. No forms, no app.</p></div>
+    <div class="pillar"><h3>Nothing sent unseen</h3><p><code>status</code> shows exactly what <code>push</code> would do first; <code>restore</code> undoes anything before it's sent; deleting only ever moves to Paprika's own trash.</p></div>
+  </div>
+
+  <div class="compare-block">
+    <h2>The only one where edits go back in.</h2>
+    <p class="sub">Plenty of tools get recipes <em>out</em> of Paprika as markdown. As far as I know, this is the only one that also gets your edits back <em>in</em>.</p>
+    <div class="table-scroll">
+      <table class="compare">
+        <tr><th></th><th>Reads from</th><th>Writes</th><th>Edits go back</th><th>Photos</th></tr>
+        <tr class="hero-row"><td>paprika-recipes</td><td>account or archive</td><td>markdown</td><td class="yes">✓ full two-way sync</td><td class="yes">✓ both directions</td></tr>
+        <tr><td><a href="https://github.com/jt196/paprika-to-obsidian-markdown">paprika-to-obsidian-markdown</a></td><td>archive</td><td>markdown</td><td class="no">—</td><td class="no">download only</td></tr>
+        <tr><td><a href="https://github.com/simonhbor/paprika-to-markdown">paprika-to-markdown</a></td><td>archive</td><td>markdown</td><td class="no">—</td><td class="no">download only</td></tr>
+        <tr><td><a href="https://github.com/bojanrajkovic/paprika-exporter">paprika-exporter</a> (bojanrajkovic)</td><td>account</td><td>markdown</td><td class="no">—</td><td class="no">—</td></tr>
+        <tr><td><a href="https://github.com/sstarcher/paprika-exporter">paprika-exporter</a> (sstarcher)</td><td>account</td><td>YAML</td><td class="no">—</td><td class="no">download only</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="vault-note">
+    <h2>Commands your hands already know.</h2>
+    <p><code>clone</code> · <code>pull</code> · <code>push</code> · <code>status</code> · <code>restore</code> — borrowed from git on purpose, with <code>--dry-run</code> everywhere and <code>--json</code> plus meaningful exit codes when you're scripting.</p>
+    <p>Rather not hand over your password? Work entirely from the app's own <code>.paprikarecipes</code> exports with <code>extract-archive</code> and <code>create-archive</code>.</p>
+  </div>
+
+  <footer>
+    <span>MIT licensed · <a href="https://pypi.org/project/paprika-recipes/">v3.0.0 on PyPI</a></span>
+    <span><a href="https://github.com/coddingtonbear/paprika-recipes">github.com/coddingtonbear/paprika-recipes</a></span>
+  </footer>
+</div>
+</body>
+</html>
