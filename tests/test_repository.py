@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -222,6 +223,30 @@ class TestStore:
     def test_a_recipe_with_null_text_fields_reads_as_unchanged(self, repository):
         """Paprika sends `null` for a recipe that has no description."""
         repository.store(make_recipe(description=None, notes=None))
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+
+    def test_a_base_copy_written_before_normalization_reads_as_unchanged(
+        self, repository
+    ):
+        """3.0.0 wrote Paprika's `\r`s and `null`s straight into the base copy.
+
+        The server's copy has not moved, so no pull will ever rewrite that
+        base; it has to read as clean on its own, or the recipe stays
+        modified forever after an upgrade.
+        """
+        recipe = make_recipe(
+            description=None, directions="Combine.\r\n\r\nBake.", uid="legacy"
+        )
+        path = repository.store(recipe)
+
+        # Put both files back the way 3.0.0 would have left them.
+        repository.base_path_for(recipe.uid).write_text(
+            json.dumps(recipe.as_dict()), encoding="utf-8"
+        )
+        path.write_bytes(render_recipe(recipe).encode("utf-8"))
 
         (entry,) = repository.status()
 
