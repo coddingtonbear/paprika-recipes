@@ -317,7 +317,12 @@ class Repository:
             return None
 
         with open(path, encoding="utf-8") as inf:
-            return RemoteRecipe.from_dict(json.load(inf))
+            # `store` normalises before writing, so this is a no-op for any
+            # base copy written by this version.  It is here for the ones
+            # written by 3.0.0, which kept Paprika's `\r`s and `null`s: without
+            # it those recipes read as modified forever, and no pull could
+            # settle them, because the server's copy has not moved.
+            return normalize_recipe(RemoteRecipe.from_dict(json.load(inf)))
 
     def write_base(self, recipe: RemoteRecipe) -> None:
         self.base_dir.mkdir(parents=True, exist_ok=True)
