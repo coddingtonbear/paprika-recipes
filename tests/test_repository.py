@@ -201,6 +201,32 @@ class TestStore:
 
         assert entry.status is Status.UNCHANGED
 
+    def test_a_recipe_with_carriage_returns_reads_as_unchanged(self, repository):
+        """A `\r` written to disk is read back as `\n`, so it must never be written.
+
+        Paprika's Windows client saves `\r\n` and older clients saved bare
+        `\r`; either would leave the recipe permanently modified otherwise.
+        """
+        repository.store(
+            make_recipe(
+                ingredients="1 tsp salt\r\n1 cup water",
+                directions="Combine.\r\rBake.",
+            )
+        )
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+        assert entry.recipe.directions == "Combine.\n\nBake."
+
+    def test_a_recipe_with_null_text_fields_reads_as_unchanged(self, repository):
+        """Paprika sends `null` for a recipe that has no description."""
+        repository.store(make_recipe(description=None, notes=None))
+
+        (entry,) = repository.status()
+
+        assert entry.status is Status.UNCHANGED
+
     def test_the_base_copy_renders_to_exactly_the_working_file(self, repository):
         """The invariant the whole change-detection scheme rests on."""
         recipe = make_recipe(notes="Best warm.\n")

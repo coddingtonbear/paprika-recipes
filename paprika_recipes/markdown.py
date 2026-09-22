@@ -390,16 +390,24 @@ def documents_differ(content: str, rendered: str) -> bool:
 def normalize_recipe(recipe: T) -> T:
     """Return a copy of `recipe` in the form our markdown can represent exactly.
 
-    Markdown has nowhere to put trailing blank lines at the end of a section --
-    the whitespace before the next heading is ours, not the recipe's -- so a
-    field ending in a newline would come back a byte shorter than it went out.
-    Rather than treat that as a failure, we flatten it on the way in, so that
-    the base copy and the working file always agree about what the recipe says.
+    Markdown has nowhere to put blank lines at either end of a section -- the
+    whitespace on each side of a heading is ours, not the recipe's -- so a
+    field beginning or ending in a newline would come back shorter than it
+    went out.  Rather than treat that as a failure, we flatten it on the way
+    in, so that the base copy and the working file always agree about what
+    the recipe says.
 
-    The photo gets one extra courtesy: Paprika spells "no photo" as `null`,
-    and our markdown can only spell it as an absent embed, which reads back
-    as `""`.  The two mean the same thing, so `null` is flattened on the way
-    in rather than reported as a loss.
+    Line endings get the same treatment.  Paprika stores whatever the client
+    that saved the recipe used -- `\r\n` from Windows, bare `\r` from older
+    apps -- and a working file is read back in universal-newlines mode, which
+    folds all of those to `\n`.  Writing a `\r` we would never read back is
+    exactly the mismatch this function exists to prevent, so every line
+    ending is folded to `\n` before anything is written.
+
+    Absent text gets one more courtesy: Paprika spells an empty field as
+    `null`, and our markdown can only spell it as an absent section or embed,
+    which reads back as `""`.  The two mean the same thing, so `null` is
+    flattened on the way in rather than reported as a loss.
 
     That is all the normalisation we perform. It discards nothing a cook would
     notice, and it only ever reaches the server for a field the user edited
@@ -407,21 +415,30 @@ def normalize_recipe(recipe: T) -> T:
     """
     changes: dict[str, Any] = {}
 
-    if getattr(recipe, PHOTO_FIELD, None) is None:
-        changes[PHOTO_FIELD] = ""
-
     for field_name in BODY_FIELDS:
         value = getattr(recipe, field_name, None)
+
+        if value is None:
+            changes[field_name] = ""
+            continue
 
         if not isinstance(value, str):
             continue
 
-        normalized = value.strip() if field_name == TITLE_FIELD else value.rstrip("\n")
+        normalized = _normalize_newlines(value)
+        normalized = (
+            normalized.strip() if field_name == TITLE_FIELD else normalized.strip("\n")
+        )
 
         if normalized != value:
             changes[field_name] = normalized
 
     return replace(recipe, **changes) if changes else recipe
+
+
+def _normalize_newlines(value: str) -> str:
+    """Fold every flavour of line ending to `\n`, as reading a file would."""
+    return value.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _render_field(field_name: str, value: str) -> str:
