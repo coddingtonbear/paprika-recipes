@@ -302,7 +302,7 @@ class TestHeadingCollisions:
 
 
 class TestNormalization:
-    """Trailing newlines are the one thing markdown cannot hold onto."""
+    """What markdown cannot hold onto: newlines at the edges, and `\r` at all."""
 
     def test_strips_trailing_newlines_from_prose_fields(self):
         recipe = BaseRecipe(
@@ -352,6 +352,47 @@ class TestNormalization:
         recipe = normalize_recipe(BaseRecipe(name="Test ", directions="Bake.\n\n"))
 
         assert normalize_recipe(recipe) == recipe
+
+    def test_strips_leading_newlines_from_prose_fields(self):
+        """The blank line after a heading is ours, just like the one before."""
+        recipe = BaseRecipe(name="Test", ingredients="\n1 tsp salt\n1 cup water")
+
+        assert find_lossy_fields(recipe) == ["ingredients"]
+        assert normalize_recipe(recipe).ingredients == "1 tsp salt\n1 cup water"
+        assert find_lossy_fields(normalize_recipe(recipe)) == []
+
+    def test_folds_windows_line_endings_to_newlines(self):
+        recipe = BaseRecipe(directions="One.\r\n\r\nTwo.\r\n")
+
+        assert normalize_recipe(recipe).directions == "One.\n\nTwo."
+
+    def test_folds_bare_carriage_returns_to_newlines(self):
+        """Older Paprika clients saved `\r` alone between lines."""
+        recipe = BaseRecipe(ingredients="1 tsp salt\r1 cup water\r")
+
+        assert normalize_recipe(recipe).ingredients == "1 tsp salt\n1 cup water"
+
+    def test_carriage_returns_count_as_edge_whitespace(self):
+        recipe = BaseRecipe(name="Test\r", notes="\r\nBest warm.\r\n")
+
+        result = normalize_recipe(recipe)
+
+        assert result.name == "Test"
+        assert result.notes == "Best warm."
+
+    def test_normalizes_paprikas_null_text_to_an_empty_field(self):
+        """Paprika spells "no description" as `null`; our markdown spells it ""."""
+        recipe = BaseRecipe.from_dict(
+            {"name": "Test", "description": None, "ingredients": None}
+        )
+
+        assert find_lossy_fields(recipe) == ["description", "ingredients"]
+
+        result = normalize_recipe(recipe)
+
+        assert result.description == ""
+        assert result.ingredients == ""
+        assert find_lossy_fields(result) == []
 
 
 class TestExtraFrontmatter:
