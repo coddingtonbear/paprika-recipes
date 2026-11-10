@@ -762,7 +762,18 @@ def unique_path(root: Path, recipe: BaseRecipe, taken: Container[Path]) -> Path:
     # with a slice of the uid, which is unique by construction.
     suffix = recipe.uid.split("-")[0] or uuid.uuid4().hex[:8]
 
-    return root / f"{stem} ({suffix}){RECIPE_SUFFIX}"
+    candidate = root / f"{stem} ({suffix}){RECIPE_SUFFIX}"
+    if candidate.resolve() not in taken and not candidate.exists():
+        return candidate
+
+    # Same name and same uid slice (or a leftover file already holds the
+    # disambiguated name): keep counting rather than overwrite what is there.
+    counter = 2
+    while True:
+        numbered = root / f"{stem} ({suffix} {counter}){RECIPE_SUFFIX}"
+        if numbered.resolve() not in taken and not numbered.exists():
+            return numbered
+        counter += 1
 
 
 def safe_filename(name: str) -> str:
