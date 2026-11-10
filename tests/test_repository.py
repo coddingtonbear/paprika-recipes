@@ -440,6 +440,19 @@ class TestFileNaming:
         assert first != second
         assert first.name == "Cookies.md"
 
+    def test_never_reuses_a_disambiguated_name(self, repository):
+        """Same name and same uid slice must not overwrite the earlier file."""
+        first = repository.write_working(make_recipe(name="Cookies", uid="ABC-1"))
+        second = repository.write_working(make_recipe(name="Cookies", uid="ABC-2"))
+        third = repository.write_working(make_recipe(name="Cookies", uid="ABC-3"))
+
+        names = {first.name, second.name, third.name}
+        assert len(names) == 3
+        assert first.name == "Cookies.md"
+        assert second.name == "Cookies (ABC).md"
+        assert third.name == "Cookies (ABC 2).md"
+        assert len(list(repository.root.glob("Cookies*.md"))) == 3
+
     @pytest.mark.parametrize(
         ("name", "expected"),
         [
